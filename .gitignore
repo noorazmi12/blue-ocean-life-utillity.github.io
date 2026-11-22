@@ -1,0 +1,18 @@
+# Python
+.venv/
+venv/
+__pycache__/
+
+# Konfigurasi rahasia
+.env
+.env.*
+!.env.example
+config/config.php
+
+# Model AI besar
+*.pt
+*.pth
+
+# File sementara
+*.log
+*.tmp
