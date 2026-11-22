@@ -2,6 +2,8 @@
 
 **Sistem Monitoring Energi Gelombang, Kualitas Perairan, dan Biota pada Keramba Jaring Apung**
 
+> **Catatan:** README ini menjelaskan aplikasi berdasarkan implementasi yang tercantum di dalam proyek. Fitur yang memerlukan sensor fisik, layanan AI, atau konfigurasi eksternal hanya akan berjalan setelah dependensinya tersedia.
+
 Aplikasi web monitoring kelautan berbasis **PHP native** (tanpa framework) + **MySQL** yang mendukung
 pengelolaan budidaya pesisir berkelanjutan melalui pemanfaatan energi gelombang laut
 (Oscillating Water Column), pemantauan kualitas perairan, pemantauan ikan dengan kamera & AI,
@@ -9,7 +11,29 @@ serta visualisasi berbasis WebGIS.
 
 ---
 
-## 1. Ringkasan Fitur & Status Kejujuran Sistem
+## Daftar Isi
+
+- [1. Ringkasan Fitur & Status Sistem](#1-ringkasan-fitur--status-sistem)
+- [2. Persyaratan](#2-persyaratan)
+- [3. Instalasi dengan XAMPP](#3-instalasi-dengan-xampp)
+- [4. Impor Database via phpMyAdmin](#4-impor-database-via-phpmyadmin)
+- [5. Struktur Folder](#5-struktur-folder)
+- [6. Dokumentasi API](#6-dokumentasi-api)
+  - [6.1 API Pembacaan Data](#61-api-pembacaan-data)
+  - [6.2 API Penerimaan Data Perangkat](#62-api-penerimaan-data-perangkat)
+  - [6.3 Token Perangkat](#63-token-perangkat)
+  - [6.4 Integrasi ESP32 OWC KJA](#64-integrasi-esp32-owc-kja-ph-suhu-dinamo-daya)
+  - [6.5 Layanan AI FishCount](#65-layanan-ai-fishcount-opsional)
+- [7. Uji Coba Tanpa Sensor](#7-uji-coba-tanpa-sensor-simulator-perangkat)
+- [8. Mode Data Real](#8-mode-data-real-aktif)
+- [9. Keamanan](#9-keamanan-yang-diterapkan)
+- [10. Status Pengembangan](#10-bagian-yang-sudah-berfungsi-vs-yang-membutuhkan-perangkat-atau-model-ai)
+- [11. Pemecahan Masalah](#11-pemecahan-masalah-troubleshooting)
+- [12. Catatan Teknis](#12-catatan-teknis)
+
+---
+
+## 1. Ringkasan Fitur & Status Sistem
 
 | Modul | Halaman | Status |
 |---|---|---|
@@ -64,7 +88,7 @@ serta visualisasi berbasis WebGIS.
    $DB_NAME = 'smart_kja_owc';
    $DB_USER = 'root';
    $DB_PASS = '';   // default XAMPP: kosong. Ganti bila MySQL Anda berpassword.
-   ```
+```
    > 💡 Alternatif tanpa menyunting berkas: kredensial dapat diambil dari
    > *environment variable* `SMART_KJA_DB_HOST`, `SMART_KJA_DB_PORT`,
    > `SMART_KJA_DB_NAME`, `SMART_KJA_DB_USER`, `SMART_KJA_DB_PASS`
@@ -72,9 +96,9 @@ serta visualisasi berbasis WebGIS.
    > XAMPP di atas yang dipakai.
 
 5. **Buka aplikasi** di browser:
-   ```
+```
    http://localhost/smart-kja-owc/
-   ```
+```
    Anda akan diarahkan otomatis ke halaman login.
 
 ---
@@ -101,7 +125,9 @@ mysql -u root < database/smart_kja_owc.sql
 > Jika data sudah lewat 24 jam dan grafik kosong, dashboard menampilkan
 > overlay "Belum ada data dalam 24 jam terakhir" — bukan angka rekaan.
 
-### Akun bawaan (segera ganti password!)
+### Akun Bawaan
+
+> **Penting:** Segera ganti seluruh password bawaan setelah login pertama kali.
 
 | Peran | Username | Password | Hak akses |
 |---|---|---|---|
@@ -193,7 +219,7 @@ smart-kja-owc/
 
 ## 6. Dokumentasi API
 
-### 6.1 API pembacaan data (privat — butuh sesi login)
+### 6.1 API Pembacaan Data (Privat — Memerlukan Sesi Login)
 
 Semua mengembalikan JSON `{ok: true, data: {...}}` dan mengharuskan pengguna login
 (kecuali `api/ingest.php` yang memakai token perangkat). Bila sesi habis → `401`.
@@ -207,7 +233,7 @@ Semua mengembalikan JSON `{ok: true, data: {...}}` dan mengharuskan pengguna log
 | `api/alerts-data.php` | `?view=recent&limit=8` | Untuk lonceng notifikasi topbar |
 | `api/devices-geo.php` | (tanpa param) / `?view=detail&id=2` | Posisi + nilai terakhir per perangkat |
 
-### 6.2 Endpoint penerimaan data perangkat (publik, autentikasi token)
+### 6.2 API Penerimaan Data Perangkat (Publik — Menggunakan Token)
 
 `POST /smart-kja-owc/api/ingest.php` — kirim JSON dengan `Content-Type: application/json`:
 
@@ -258,7 +284,7 @@ Respons sukses:
 { "ok": true, "id": 1234, "device": "WAV-001", "inserted": 1, "alerts_created": 0, "message": "Data diterima dan disimpan." }
 ```
 
-### 6.3 Token perangkat
+### 6.3 Token Perangkat
 
 Server menyimpan **hash SHA-256** token; token asli hanya diketahui perangkat dan
 *tidak pernah* ditanam di JavaScript frontend. Token baru ditampilkan sekali saat dibuat.
@@ -267,7 +293,7 @@ Token sudah di-rotate dan tidak ada lagi token demo bawaan. Untuk melihat/mengga
 token sebuah perangkat: buka `perangkat.php` → klik ikon **kunci** pada baris perangkat
 (token baru ditampilkan sekali, langsung pasang di perangkat).
 
-### 6.4 Integrasi ESP32 OWC KJA (pH, suhu, dinamo, daya)
+### 6.4 Integrasi ESP32 OWC KJA (pH, Suhu, Dinamo, Daya)
 
 Sketch lengkap tersedia di **`owc_kja_bolu.ino`** (ESP32 + DS18B20 + probe pH analog +
 INA219, WiFiManager + halaman monitor lokal + mDNS `owc.local`). Sketch mengirim data
@@ -288,7 +314,7 @@ dan alat tetap terhitung Online. Bila INA219 tidak terdeteksi, daya/arus dikirim
 Setelah data masuk: dashboard, Kualitas Air, dan Energi OWC menampilkan status **LIVE**
 secara otomatis (interval segar mengikuti pengaturan sistem).
 
-### 6.5 Layanan AI FishCount (opsional)
+### 6.5 Layanan AI FishCount (Opsional)
 
 `config/config.php` membaca `FISHCOUNT_AI_URL` (atau env `SMART_KJA_FISHCOUNT_AI_URL`).
 Bila diisi, **setiap snapshot kamera laptop & unggahan gambar** otomatis dikirim ke layanan
@@ -346,7 +372,7 @@ status data adalah **LIVE**; setelah itu DELAYED lalu OFFLINE otomatis.
    DELETE FROM owc_measurements   WHERE is_simulated = 1;
    DELETE FROM fishcount_results  WHERE is_simulated = 1;
    DELETE FROM alerts             WHERE is_simulated = 1;
-   ```
+```
 5. **Atur ambang spesies** — `pengaturan.php` → *Ambang Parameter per Spesies* sesuai
    jenis ikan budidaya (bukan nilai universal).
 6. **Perbarui koordinat** — `webgis.php` → *Tambah/Ubah Lokasi* (admin) dengan koordinat
@@ -379,7 +405,7 @@ set `ENVIRONMENT='production'`, gunakan HTTPS, dan batasi akses phpMyAdmin.
 
 ---
 
-## 10. Bagian yang Sudah Berfungsi vs yang Membutuhkan Perangkat / Model AI
+## 10. Bagian yang Sudah Berfungsi vs. yang Membutuhkan Perangkat atau Model AI
 
 **Sudah berfungsi nyata (siap dipakai lokal):**
 Login/logout, multi-halaman + navigasi, dashboard polling, semua grafik (Chart.js),
@@ -431,5 +457,4 @@ LIVE/DELAYED/OFFLINE bekerja sesuai usia data (tidak pernah mengklaim LIVE untuk
 - Kompatibel PHP 8.1+ (memakai `match`, arrow function, `str_contains`).
 
 Lisensi: bebas digunakan dan dikembangkan untuk keperluan penelitian & edukasi.
-#   B O L U - B l u e - O c e a n - L i f e - U t i l i t y -  
- 
+#
