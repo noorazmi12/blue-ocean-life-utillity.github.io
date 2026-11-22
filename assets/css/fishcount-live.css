@@ -1,0 +1,43 @@
+/* ================= FishCount live camera + placement ================= */
+.fc-live-grid{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(280px,.85fr);gap:18px;align-items:start;margin-bottom:18px}
+.fc-camera-card .card-body{padding:14px}
+.fc-stream-frame{position:relative;width:100%;min-height:260px;aspect-ratio:4/3;background:#0c1723;border-radius:12px;overflow:hidden;display:grid;place-items:center}
+.fc-stream-frame img{display:block;width:100%;height:100%;max-height:620px;object-fit:contain;background:#07111d}
+.fc-stream-placeholder{display:flex;min-height:260px;padding:24px;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#d4e1ed;text-align:center}
+.fc-stream-placeholder i{font-size:38px;color:#55b9c6}
+.fc-stream-placeholder span{font-size:13px;color:#9fb1c4}
+.fc-stream-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-muted,#718096)}
+.fc-stat-column{display:grid;gap:14px}
+.fc-total-card{background:linear-gradient(145deg,#112b3a,#17394a);color:#fff;border:1px solid rgba(90,180,190,.25)}
+.fc-total-card .card-body{padding:20px}
+.fc-stat-label{display:block;color:#b8d5df;font-size:13px}
+.fc-total-number{display:block;font-size:48px;line-height:1.15;font-weight:800;margin:6px 0}
+.fc-stat-unit{font-size:12px;color:#a8c5d0}
+.fc-direction-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.fc-direction-grid div{display:flex;flex-direction:column;gap:5px}
+.fc-direction-grid span{font-size:12px;color:#b8d5df}
+.fc-direction-grid strong{font-size:25px}
+.fc-total-card .btn{color:#fff;border-color:rgba(255,255,255,.35)}
+.fc-mini-stats{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.fc-mini-stats div{display:flex;flex-direction:column;gap:5px}
+.fc-mini-stats span{font-size:12px;color:var(--text-muted,#718096)}
+.fc-mini-stats strong{font-size:16px;overflow-wrap:anywhere}
+.fc-note{font-size:12px;line-height:1.55;margin:0}
+.fc-bridge-card,.fc-placement-card{margin-bottom:18px}
+.fc-bridge-controls{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.fc-field{display:flex;flex-direction:column;gap:6px;min-width:0;flex:1}
+.fc-field>span{font-size:12px;font-weight:700;color:var(--text-muted,#718096)}
+.fc-bridge-controls .fc-field{max-width:520px}
+.fc-placement-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(260px,.8fr);gap:18px}
+.fc-camera-map{width:100%;height:390px;border-radius:12px;border:1px solid var(--border,#dce4ea);z-index:1}
+.fc-placement-form{display:flex;flex-direction:column;gap:14px}
+.fc-placement-help{padding:12px;border-radius:10px;background:rgba(48,144,168,.09);color:var(--text,#334);font-size:13px;line-height:1.5}
+.fc-placement-help i{margin-right:6px;color:#3090a8}
+.fc-coord-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fc-install-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.fc-install-grid>div{display:flex;flex-direction:column;gap:7px;padding:14px;border:1px solid var(--border,#e1e8ed);border-radius:10px}
+.fc-install-grid i{font-size:20px;color:#3090a8}
+.fc-install-grid strong{font-size:13px}
+.fc-install-grid span{font-size:12px;line-height:1.55;color:var(--text-muted,#718096)}
+@media(max-width:1050px){.fc-live-grid{grid-template-columns:1fr}.fc-install-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.fc-placement-layout{grid-template-columns:1fr}.fc-camera-map{height:300px}.fc-coord-grid{grid-template-columns:1fr}.fc-install-grid{grid-template-columns:1fr 1fr}.fc-bridge-controls .fc-field{flex-basis:100%;max-width:none}}

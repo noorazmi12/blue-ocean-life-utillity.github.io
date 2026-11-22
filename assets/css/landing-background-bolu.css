@@ -1,0 +1,24 @@
+/* BOLU / Beranda — patch foto background khusus landing page.
+   Tidak mengubah gaya dashboard.php maupun halaman lain.
+   URL relatif terhadap lokasi file CSS: assets/css -> ../img */
+.lp .hero-bg {
+    background-image: url('../img/dashboard-bg.jpg');
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center 58%;
+    filter: saturate(1.08) contrast(1.03);
+}
+/* Overlay supaya teks dan navbar putih tetap kontras pada foto langit cerah */
+.lp .hero-veil {
+    background:
+        linear-gradient(90deg, rgba(5, 27, 58, .80) 0%, rgba(7, 47, 85, .61) 55%, rgba(5, 34, 67, .31) 100%),
+        linear-gradient(180deg, rgba(2, 30, 62, .38) 0%, rgba(8, 45, 68, .08) 42%, rgba(7, 33, 57, .88) 100%);
+}
+.lp .hero-desc { color: rgba(255,255,255,.96); text-shadow: 0 1px 8px rgba(0,24,48,.35); }
+.lp .hero-tagline { color: #D0F3FF; text-shadow: 0 1px 8px rgba(0,24,48,.4); }
+.lp .hero h1 { text-shadow: 0 3px 18px rgba(0,23,51,.23); }
+.lp .lp-nav { background: linear-gradient(180deg, rgba(3,25,50,.42), transparent); }
+@media (max-width: 768px) {
+    .lp .hero-bg { background-position: 49% 60%; }
+    .lp .hero-veil { background: linear-gradient(180deg, rgba(4,34,65,.68), rgba(4,30,55,.66) 65%, rgba(4,28,50,.91)); }
+}
