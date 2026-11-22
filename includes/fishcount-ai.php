@@ -10,7 +10,7 @@ function fishcount_ai_enabled(): bool
 
 function fishcount_ai_analyze(string $filePath, string $mime = 'image/jpeg'): ?array
 {
-    if (!fishcount_ai_enabled() || !is_file($filePath)) {
+    if (getenv('SMART_KJA_WASM') === '1' || !fishcount_ai_enabled() || !is_file($filePath)) {
         return null;
     }
     $bytes = file_get_contents($filePath);

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
+import 'express-session';
 import { store } from '../data/store.ts';
 import type { User } from '../types.ts';
 import { escHtml } from './helpers.ts';

@@ -11,6 +11,8 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@php-wasm/node-8-3": "^3.1.65",
+    "@php-wasm/universal": "^3.1.65",
     "@types/bcryptjs": "^2.4.6",
     "@types/ejs": "^3.1.5",
     "@types/express": "^5.0.6",

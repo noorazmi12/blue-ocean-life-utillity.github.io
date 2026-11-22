@@ -1,19 +1,14 @@
-import crypto from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
-import express from 'express';
-import session from 'express-session';
-import apiRouter from './src/routes/api.ts';
-import { pagesRouter } from './src/routes/pages.ts';
+import express, { type NextFunction, type Request, type Response } from 'express';
+import { getPhpAdapter, handlePhpRequest } from './src/phpAdapter.ts';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 const ROOT_DIR = process.cwd();
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 app.set('trust proxy', 1);
-app.set('view engine', 'ejs');
-app.set('views', path.join(ROOT_DIR, 'views'));
 app.disable('x-powered-by');
 
 app.use((req, res, next) => {
@@ -24,10 +19,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-app.use(express.json({ limit: '10mb' }));
-
-// Static assets preserved identically from repository
+// Serve static assets identically from repository
 app.use(
   '/assets',
   express.static(path.join(ROOT_DIR, 'assets'), {
@@ -52,72 +44,92 @@ app.use(
   })
 );
 
-const sessionMiddleware = session({
-  name: 'bolu_sid',
-  secret: SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  proxy: true,
-  cookie: {
-    httpOnly: true,
-    path: '/',
-    maxAge: 24 * 60 * 60 * 1000,
-    sameSite: 'lax',
-    secure: false,
-  },
+// Block direct HTTP access to internal config/includes/database/source directories
+app.use(['/config', '/includes', '/database', '/src', '/views', '/node_modules'], (_req, res) => {
+  res.status(403).type('html').send('<h1>403 — Akses ditolak</h1>');
 });
 
-app.use(sessionMiddleware);
+// Capture raw request body for native PHP $_POST / php://input / $_FILES parsing
+app.use(express.raw({ type: '*/*', limit: '12mb' }));
 
-// Dynamically match HTTPS preview iframe requirements while keeping localhost HTTP working
-app.use((req, _res, next) => {
-  const fwdProto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
-  const origin = String(req.headers.origin || '');
-  const referer = String(req.headers.referer || '');
-  const secFetchDest = String(req.headers['sec-fetch-dest'] || '');
-  const isHttps = req.secure || fwdProto.includes('https');
-  const isIframePreview =
-    secFetchDest === 'iframe' ||
-    /aistudio|googleusercontent|space-z\.ai|fcapp\.run/i.test(origin + ' ' + referer);
+const EXTENSIONLESS_PAGES = new Set([
+  'login',
+  'logout',
+  'dashboard',
+  'penjelasan-kja',
+  'kualitas-air',
+  'gelombang',
+  'energi-owc',
+  'fishcount',
+  'fishcount-species',
+  'webgis',
+  'batimetri',
+  'lokasi-kja',
+  'prediksi-ai',
+  'peringatan',
+  'laporan',
+  'perangkat',
+  'jenis-ikan',
+  'pengaturan',
+]);
 
-  if (req.session) {
-    if (isHttps && isIframePreview) {
-      req.session.cookie.sameSite = 'none';
-      req.session.cookie.secure = true;
-    } else if (isHttps) {
-      req.session.cookie.sameSite = 'lax';
-      req.session.cookie.secure = true;
-    } else {
-      req.session.cookie.sameSite = 'lax';
-      req.session.cookie.secure = false;
+// Route all PHP pages, /, extensionless aliases, and /api/*.php through the PHP 8.3 WASM adapter
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const reqPath = req.path;
+
+  let targetScript: string | null = null;
+  if (reqPath === '/' || reqPath === '/index.php') {
+    targetScript = '/index.php';
+  } else if (/^\/(?:api\/)?[a-z0-9_-]+\.php$/i.test(reqPath)) {
+    const abs = path.resolve(ROOT_DIR, reqPath.replace(/^\/+/, ''));
+    if (abs.startsWith(ROOT_DIR + path.sep) && fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+      targetScript = reqPath;
+    }
+  } else {
+    const bare = reqPath.replace(/^\/+|\/+$/g, '');
+    if (EXTENSIONLESS_PAGES.has(bare)) {
+      targetScript = `/${bare}.php`;
     }
   }
-  next();
+
+  if (!targetScript) {
+    next();
+    return;
+  }
+
+  const qIdx = req.originalUrl.indexOf('?');
+  const qs = qIdx >= 0 ? req.originalUrl.slice(qIdx) : '';
+  const targetUrl = `${targetScript}${qs}`;
+
+  void handlePhpRequest(req, res, targetUrl).catch(next);
 });
 
-app.use('/api', apiRouter);
-app.use('/', pagesRouter);
-
 app.use((_req, res) => {
-  res.status(404).type('html').send('<h1>404 — Halaman tidak ditemukan</h1><p><a href="/">Kembali ke Beranda</a></p>');
+  res
+    .status(404)
+    .type('html')
+    .send('<h1>404 — Halaman tidak ditemukan</h1><p><a href="/">Kembali ke Beranda</a></p>');
 });
 
 app.use(
   (
     err: Error & { status?: number },
-    req: express.Request,
-    res: express.Response,
-    _next: express.NextFunction
+    req: Request,
+    res: Response,
+    _next: NextFunction
   ) => {
-    console.error('[BOLU server error]', err.message);
+    console.error('[BOLU PHP-WASM server error]', err.message);
     if (req.path.startsWith('/api/')) {
-      res.status(err.status || 500).json({ ok: false, error: 'Terjadi kesalahan pada server.' });
+      res.status(err.status || 500).json({ ok: false, error: 'Terjadi kesalahan pada server PHP.' });
       return;
     }
-    res.status(err.status || 500).send('Terjadi kesalahan pada server.');
+    res.status(err.status || 500).send('Terjadi kesalahan pada server PHP.');
   }
 );
 
 app.listen(PORT, HOST, () => {
-  console.log(`BOLU server running on http://${HOST}:${PORT}`);
+  console.log(`BOLU PHP-WASM adapter server running on http://${HOST}:${PORT}`);
+  void getPhpAdapter()
+    .then(() => console.log('PHP 8.3 runtime initialized and mounted at /var/www/html'))
+    .catch((err) => console.error('Failed to initialize PHP 8.3 runtime:', err));
 });

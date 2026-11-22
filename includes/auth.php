@@ -4,6 +4,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/functions.php';
 
 if (session_status() === PHP_SESSION_NONE) {
+    if (getenv('SMART_KJA_DB_DRIVER') === 'sqlite' && is_dir('/tmp') && is_writable('/tmp')) {
+        session_save_path('/tmp');
+    }
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
     session_set_cookie_params([

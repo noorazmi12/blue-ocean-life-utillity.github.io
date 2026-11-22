@@ -1,75 +1,135 @@
 <?php
 declare(strict_types=1);
+
 require_once __DIR__ . '/includes/auth.php';
 require_login();
 
-$PAGE_ID = 'fishcount';
-$PAGE_TITLE = 'Klasifikasi Spesies Ikan';
-$BREADCRUMB = [['Dashboard', 'dashboard.php'], ['FishCount AI', 'fishcount.php'], ['Klasifikasi Spesies', null]];
+$labels = [
+    'bandeng' => 'Bandeng',
+    'kerapu_macan' => 'Kerapu Macan',
+    'kakap_putih' => 'Kakap Putih',
+    'bawal_bintang' => 'Bawal Bintang',
+];
+
+$detectImageMime = static function (string $bytes): string {
+    $len = strlen($bytes);
+    if ($len >= 3 && ord($bytes[0]) === 0xFF && ord($bytes[1]) === 0xD8 && ord($bytes[2]) === 0xFF) {
+        return 'image/jpeg';
+    }
+    if ($len >= 8 && substr($bytes, 0, 4) === "\x89PNG") {
+        return 'image/png';
+    }
+    if ($len >= 12 && substr($bytes, 0, 4) === 'RIFF' && substr($bytes, 8, 4) === 'WEBP') {
+        return 'image/webp';
+    }
+    return '';
+};
 
 $result = null;
-$error = '';
+$error = null;
+$preview = null;
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     csrf_check();
-    $file = $_FILES['photo'] ?? null;
-    if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        $error = 'Silakan pilih berkas gambar yang valid.';
-    } elseif (($file['size'] ?? 0) > UPLOAD_MAX_BYTES) {
-        $error = 'Ukuran gambar melebihi batas 5 MB.';
+    $file = $_FILES['fish_image'] ?? null;
+    if (!is_array($file) || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $error = 'Pilih JPG/PNG/WEBP maksimal 5 MB.';
     } else {
-        $mime = mime_content_type($file['tmp_name']) ?: '';
-        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
-            $error = 'Format gambar harus JPG, PNG, atau WEBP.';
+        $size = (int)($file['size'] ?? 0);
+        $tmpName = (string)($file['tmp_name'] ?? '');
+        if ($size <= 0 || $size > UPLOAD_MAX_BYTES || $tmpName === '' || !is_readable($tmpName)) {
+            $error = 'Pilih JPG/PNG/WEBP maksimal 5 MB.';
         } else {
-            $ch = curl_init(FISHCOUNT_SPECIES_API_URL);
-            if ($ch) {
-                $cfile = new CURLFile($file['tmp_name'], $mime, basename((string)$file['name']));
-                curl_setopt_array($ch, [
-                    CURLOPT_POST => true,
-                    CURLOPT_POSTFIELDS => ['file' => $cfile],
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_TIMEOUT => 20,
-                ]);
-                $resp = curl_exec($ch);
-                $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                curl_close($ch);
-                if ($resp && $code >= 200 && $code < 300) {
-                    $result = json_decode($resp, true);
+            $bytes = file_get_contents($tmpName);
+            $mime = $bytes !== false ? $detectImageMime($bytes) : '';
+            if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+                $error = 'Format bukan JPG/PNG/WEBP yang valid.';
+            } else {
+                $b64 = base64_encode($bytes);
+                $preview = "data:{$mime};base64,{$b64}";
+                $payload = json_encode(['image_base64' => $b64, 'mime' => $mime]);
+                $raw = null;
+
+                if (getenv('SMART_KJA_WASM') !== '1') {
+                    if (function_exists('curl_init')) {
+                        $ch = curl_init(FISHCOUNT_SPECIES_API_URL);
+                        curl_setopt_array($ch, [
+                            CURLOPT_POST => true,
+                            CURLOPT_POSTFIELDS => $payload,
+                            CURLOPT_RETURNTRANSFER => true,
+                            CURLOPT_TIMEOUT => 90,
+                            CURLOPT_CONNECTTIMEOUT => 10,
+                            CURLOPT_HTTPHEADER => ['Content-Type: application/json', 'Accept: application/json'],
+                        ]);
+                        $resp = curl_exec($ch);
+                        curl_close($ch);
+                        if (is_string($resp) && $resp !== '') {
+                            $raw = $resp;
+                        }
+                    } else {
+                        $ctx = stream_context_create([
+                            'http' => [
+                                'method' => 'POST',
+                                'header' => "Content-Type: application/json\r\nAccept: application/json\r\n",
+                                'content' => $payload,
+                                'timeout' => 90,
+                                'ignore_errors' => true,
+                            ],
+                        ]);
+                        $resp = @file_get_contents(FISHCOUNT_SPECIES_API_URL, false, $ctx);
+                        if (is_string($resp) && $resp !== '') {
+                            $raw = $resp;
+                        }
+                    }
+                }
+
+                if ($raw === null) {
+                    $error = 'Python API tidak dapat dihubungi';
                 } else {
-                    $error = 'Layanan klasifikasi spesies (' . FISHCOUNT_SPECIES_API_URL . ') tidak merespons.';
+                    $json = json_decode($raw, true);
+                    if (is_array($json) && !empty($json['ok']) && is_string($json['species'] ?? null)) {
+                        $result = $json;
+                    } elseif (is_array($json)) {
+                        $detail = $json['detail'] ?? $json['error'] ?? 'Respons AI belum tersedia';
+                        $error = is_string($detail) ? $detail : 'Respons server AI tidak valid';
+                    } else {
+                        $error = 'Python API tidak dapat dihubungi';
+                    }
                 }
             }
         }
     }
 }
 
-include __DIR__ . '/includes/header.php';
+$PAGE_ID = 'fishcount';
+$PAGE_TITLE = 'Klasifikasi Spesies — EfficientNetV2';
+$BREADCRUMB = [
+    ['Dashboard', 'dashboard.php'],
+    ['FishCount AI', 'fishcount.php'],
+    ['Klasifikasi Spesies', null],
+];
+$PAGE_SCRIPTS = [];
+
+require __DIR__ . '/includes/header.php';
 ?>
-<div class="page-header">
-    <div class="page-title">
-        <h1><i class="fa-solid fa-microscope"></i> Klasifikasi Spesies Ikan (EfficientNetV2-S)</h1>
-        <p class="page-desc">Identifikasi spesies Bandeng, Kerapu Macan, Kakap Putih, dan Bawal Bintang dari foto.</p>
-    </div>
-    <div class="page-actions"><a class="btn btn-outline btn-sm" href="fishcount.php"><i class="fa-solid fa-arrow-left"></i> Kembali ke FishCount</a></div>
-</div>
 
-<?php if ($error): ?><div class="callout callout-danger"><i class="fa-solid fa-circle-exclamation"></i><div><?= e($error) ?></div></div><?php endif; ?>
-<?php if ($result): ?>
-    <div class="callout callout-success"><i class="fa-solid fa-circle-check"></i><div>Hasil klasifikasi: <strong><?= e((string)($result['label'] ?? $result['species'] ?? 'Terdeteksi')) ?></strong></div></div>
-<?php endif; ?>
+<div class="page-header"><div class="page-title"><h1><i class="fa-solid fa-fish"></i> Klasifikasi Spesies — EfficientNetV2</h1><p class="page-desc">Unggah foto untuk memprediksi <strong>spesies dominan</strong> dari empat spesies BOLU. Tidak menghitung ikan.</p></div></div>
+<div class="card"><div class="card-header"><h3 class="card-title">Uji foto ikan</h3></div><div class="card-body">
+  <form method="post" enctype="multipart/form-data" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+    <?= csrf_field() ?>
+    <input type="file" name="fish_image" accept="image/jpeg,image/png,image/webp" required>
+    <button type="submit" class="btn btn-primary"><i class="fa-solid fa-brain"></i> Kenali spesies</button>
+    <a class="btn btn-outline" href="fishcount.php">Kembali ke FishCount</a>
+  </form>
+  <p style="margin-top:12px">Model: <strong>EfficientNetV2-S</strong> · Kelas: Bandeng, Kerapu Macan, Kakap Putih, Bawal Bintang.</p>
+  <?php if ($error !== null): ?><div class="callout callout-info" style="margin-top:16px"><strong>Belum berhasil:</strong> <?= e($error) ?>. Pastikan API Python berjalan dan model <code>efficientnetv2_best.pt</code> tersedia.</div><?php endif; ?>
+  <?php if ($result !== null): ?>
+    <div class="callout callout-info" style="margin-top:16px"><h3>Hasil klasifikasi</h3><p><strong><?= e($labels[$result['species']] ?? $result['species']) ?></strong> — skor model <?= e((string)($result['confidence_pct'] ?? '')) ?>%</p><p><strong>Catatan:</strong> prediksi satu spesies dominan dari keseluruhan gambar; bukan jumlah ikan. Skor model bukan bukti akurasi pengujian.</p></div>
+    <table class="table" style="margin-top:12px"><thead><tr><th>Spesies</th><th>Skor</th></tr></thead><tbody>
+    <?php foreach ((array)($result['scores'] ?? []) as $species => $score): ?><tr><td><?= e($labels[(string)$species] ?? (string)$species) ?></td><td><?= e((string)$score) ?>%</td></tr><?php endforeach; ?>
+    </tbody></table>
+  <?php endif; ?>
+  <?php if ($preview !== null): ?><div style="margin-top:15px"><img src="<?= e($preview) ?>" alt="Foto uji" style="max-height:320px;max-width:100%;object-fit:contain;border-radius:8px"></div><?php endif; ?>
+</div></div>
 
-<div class="card">
-    <div class="card-header"><div><h3 class="card-title">Unggah Foto Spesies</h3></div></div>
-    <div class="card-body">
-        <form method="post" enctype="multipart/form-data">
-            <?= csrf_field() ?>
-            <div class="form-group">
-                <label class="form-label" for="photo">Berkas Foto (JPG/PNG/WEBP, maks 5 MB)</label>
-                <input class="form-control" type="file" id="photo" name="photo" accept="image/jpeg,image/png,image/webp" required>
-            </div>
-            <button type="submit" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass"></i> Analisis Spesies</button>
-        </form>
-    </div>
-</div>
-<?php include __DIR__ . '/includes/footer.php'; ?>
+<?php require __DIR__ . '/includes/footer.php'; ?>

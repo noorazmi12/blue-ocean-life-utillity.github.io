@@ -1,90 +1,173 @@
 <?php
 declare(strict_types=1);
+
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/boot-data.php';
 require_login();
 
-$pdo = db();
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     csrf_check();
-    if (!is_admin()) {
-        flash_set('error', 'Hanya admin yang dapat memperbarui koordinat lokasi.');
-        header('Location: webgis.php');
-        exit;
-    }
-    $devId = (int)($_POST['device_id'] ?? 0);
-    $lat = (float)($_POST['latitude'] ?? 0);
-    $lng = (float)($_POST['longitude'] ?? 0);
-    $name = trim((string)($_POST['location_name'] ?? ''));
-    if ($devId > 0) {
-        $exists = $pdo->prepare('SELECT id FROM device_locations WHERE device_id = ? LIMIT 1');
-        $exists->execute([$devId]);
-        if ($exists->fetch()) {
-            $pdo->prepare('UPDATE device_locations SET latitude=?, longitude=?, location_name=?, updated_at=NOW() WHERE device_id=?')
-                ->execute([$lat, $lng, $name, $devId]);
-        } else {
-            $pdo->prepare('INSERT INTO device_locations (device_id, latitude, longitude, location_name, installed_at, updated_at) VALUES (?, ?, ?, ?, CURDATE(), NOW())')
-                ->execute([$devId, $lat, $lng, $name]);
+    if (($_POST['action'] ?? '') === 'save_location') {
+        if (!is_admin()) {
+            flash_set('error', 'Hanya administrator yang dapat mengubah lokasi perangkat.');
+            header('Location: webgis.php');
+            exit;
         }
-        flash_set('success', 'Lokasi perangkat berhasil diperbarui.');
+        $deviceId = (int)($_POST['device_id'] ?? 0);
+        $latRaw = $_POST['latitude'] ?? '';
+        $lngRaw = $_POST['longitude'] ?? '';
+        $lat = is_numeric($latRaw) ? (float)$latRaw : NAN;
+        $lng = is_numeric($lngRaw) ? (float)$lngRaw : NAN;
+        $locName = trim((string)($_POST['location_name'] ?? ''));
+        $installed = trim((string)($_POST['installed_at'] ?? ''));
+        $installedVal = ($installed !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $installed)) ? $installed : null;
+        $notesRaw = trim((string)($_POST['notes'] ?? ''));
+        $notesVal = $notesRaw !== '' ? $notesRaw : null;
+
+        $latOk = $latRaw !== '' && is_finite($lat) && $lat >= -90 && $lat <= 90;
+        $lngOk = $lngRaw !== '' && is_finite($lng) && $lng >= -180 && $lng <= 180;
+
+        if ($deviceId <= 0 || !$latOk || !$lngOk) {
+            flash_set('error', 'Data lokasi tidak valid (periksa perangkat, latitude -90..90, longitude -180..180).');
+        } else {
+            $now = date('Y-m-d H:i:s');
+            $chk = db()->prepare('SELECT id, location_name FROM device_locations WHERE device_id = ? LIMIT 1');
+            $chk->execute([$deviceId]);
+            $existing = $chk->fetch();
+            if ($existing) {
+                $finalName = $locName !== '' ? $locName : $existing['location_name'];
+                db()->prepare(
+                    'UPDATE device_locations SET latitude = ?, longitude = ?, location_name = ?, installed_at = ?, notes = ?, updated_at = ? WHERE id = ?'
+                )->execute([$lat, $lng, $finalName, $installedVal, $notesVal, $now, (int)$existing['id']]);
+            } else {
+                db()->prepare(
+                    'INSERT INTO device_locations (device_id, latitude, longitude, location_name, installed_at, notes, updated_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)'
+                )->execute([$deviceId, $lat, $lng, $locName !== '' ? $locName : null, $installedVal, $notesVal, $now]);
+            }
+            flash_set('success', 'Lokasi perangkat berhasil disimpan.');
+        }
     }
     header('Location: webgis.php');
     exit;
 }
 
+$deviceList = db()->query(
+    'SELECT d.id, d.device_code, d.device_name, d.device_type, d.status,
+            l.latitude, l.longitude, l.location_name, l.installed_at, l.notes
+     FROM devices d
+     LEFT JOIN device_locations l ON l.device_id = d.id
+     WHERE d.is_active = 1
+     ORDER BY d.device_name ASC'
+)->fetchAll();
+
+$bootPayload = ['geo' => skja_boot_geo()];
+
 $PAGE_ID = 'webgis';
-$PAGE_TITLE = 'WebGIS Lokasi KJA';
+$PAGE_TITLE = 'WebGIS';
 $BREADCRUMB = [['Dashboard', 'dashboard.php'], ['WebGIS', null]];
 $PAGE_SCRIPTS = ['map.js'];
 $NEED_LEAFLET = true;
 
-$devices = $pdo->query(
-    'SELECT d.id, d.device_code AS code, d.device_name AS name, d.device_type AS type, d.status,
-            l.latitude, l.longitude, l.location_name
-     FROM devices d LEFT JOIN device_locations l ON l.device_id = d.id WHERE d.is_active = 1 ORDER BY d.id'
-)->fetchAll();
-
-$bootPayload = [
-    'center' => ['lat' => setting_float('map_center_lat', -5.77), 'lng' => setting_float('map_center_lng', 105.264)],
-    'zoom' => setting_int('map_default_zoom', 15),
-    'site_location' => setting('site_location', 'Teluk Hurun, Lampung'),
-    'devices' => $devices,
-];
-
-include __DIR__ . '/includes/header.php';
+require __DIR__ . '/includes/header.php';
 ?>
+
 <div class="page-header">
     <div class="page-title">
-        <h1><i class="fa-solid fa-map-location-dot"></i> WebGIS &amp; Lokasi Perangkat KJA</h1>
-        <p class="page-desc">Peta interaktif posisi ponton OWC, sensor kualitas air, buoy gelombang, dan kamera FishCount.</p>
+        <h1><i class="fa-solid fa-map-location-dot"></i> WebGIS</h1>
+        <p class="page-desc">Peta interaktif lokasi KJA dan seluruh perangkat pemantauan (OWC, sensor gelombang,
+            sensor kualitas air, kamera FishCount). Nilai pada popup diambil langsung dari pengukuran terbaru.</p>
+    </div>
+    <div class="page-actions">
+        <?php if (is_admin()): ?>
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddLocation">
+            <i class="fa-solid fa-plus"></i> Tambah / Ubah Lokasi
+        </button>
+        <?php endif; ?>
+        <span class="source-note"><i class="fa-solid fa-map"></i> Imagery Esri &middot; &copy; OpenStreetMap</span>
     </div>
 </div>
 
 <div class="card">
-    <div class="card-header"><div><h3 class="card-title"><i class="fa-solid fa-map"></i> Peta Spasial KJA</h3></div></div>
-    <div class="card-body"><div class="map-box lg" id="webgisMap"></div></div>
-</div>
-
-<?php if (is_admin()): ?>
-<div class="card">
-    <div class="card-header"><div><h3 class="card-title">Ubah Koordinat Perangkat</h3></div></div>
-    <div class="card-body">
-        <form method="post" class="grid-2">
-            <?= csrf_field() ?>
-            <div class="form-group">
-                <label class="form-label" for="device_id">Perangkat</label>
-                <select class="form-select" id="device_id" name="device_id">
-                    <?php foreach ($devices as $d): ?>
-                        <option value="<?= (int)$d['id'] ?>"><?= e($d['code'] . ' — ' . $d['name']) ?></option>
-                    <?php endforeach; ?>
-                </select>
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-layer-group"></i> Peta Perangkat</h3>
+            <p class="card-sub">Gunakan filter layer untuk menampilkan jenis perangkat tertentu</p>
+        </div>
+        <div class="card-tools">
+            <div class="input-group">
+                <input type="text" class="form-control" id="searchDevice" placeholder="Cari perangkat..." style="width:200px">
+                <button type="button" class="btn btn-outline btn-sm" id="btnSearch"><i class="fa-solid fa-magnifying-glass"></i></button>
             </div>
-            <div class="form-group"><label class="form-label" for="location_name">Nama Lokasi</label><input class="form-control" id="location_name" name="location_name" required></div>
-            <div class="form-group"><label class="form-label" for="latitude">Latitude</label><input class="form-control" id="latitude" name="latitude" type="number" step="0.000001" required></div>
-            <div class="form-group"><label class="form-label" for="longitude">Longitude</label><input class="form-control" id="longitude" name="longitude" type="number" step="0.000001" required></div>
-            <div><button type="submit" class="btn btn-primary btn-sm">Simpan Lokasi</button></div>
-        </form>
+        </div>
+    </div>
+    <div class="card-body" style="position:relative">
+        <div class="map-box" id="webgisMap"><span class="map-coord" id="mapCoord">—</span></div>
+        <div class="no-print" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <span class="form-label" style="margin:0">Filter Layer:</span>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="owc" checked> <i class="fa-solid fa-bolt" style="color:var(--accent-dark)"></i> Unit OWC
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="wave_sensor" checked> <i class="fa-solid fa-water" style="color:var(--blue)"></i> Sensor Gelombang
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="water_sensor" checked> <i class="fa-solid fa-droplet" style="color:var(--green)"></i> Sensor Kualitas Air
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="camera" checked> <i class="fa-solid fa-video" style="color:#8E44AD"></i> Kamera FishCount
+            </label>
+        </div>
+    </div>
+    <div class="map-legend">
+        <span class="legend-item"><span class="legend-swatch owc"></span> Unit OWC</span>
+        <span class="legend-item"><span class="legend-swatch wave"></span> Sensor Gelombang</span>
+        <span class="legend-item"><span class="legend-swatch water"></span> Sensor Kualitas Air</span>
+        <span class="legend-item"><span class="legend-swatch camera"></span> Kamera FishCount</span>
+        <span class="legend-item"><i class="fa-solid fa-circle-info"></i> Marker abu-abu = offline · Klik marker untuk nilai terbaru</span>
     </div>
 </div>
-<?php endif; ?>
+
+<!-- Daftar koordinat -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-location-crosshairs"></i> Informasi Koordinat Perangkat</h3>
+            <p class="card-sub">Sumber: tabel <code>device_locations</code></p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Perangkat</th><th>Jenis</th><th>Nama Lokasi</th><th>Latitude</th><th>Longitude</th><th>Terpasang</th><th>Aksi</th></tr></thead>
+            <tbody>
+            <?php foreach ($deviceList as $d): ?>
+                <tr>
+                    <td class="table-strong"><?= e($d['device_name']) ?> <span class="source-note">(<?= e($d['device_code']) ?>)</span></td>
+                    <td><span class="badge badge-outline"><?= e(str_replace('_', ' ', (string)$d['device_type'])) ?></span></td>
+                    <td><?= e($d['location_name'] ?: '—') ?></td>
+                    <td class="num"><?= $d['latitude'] !== null ? fmt_num($d['latitude'], 7) : '—' ?></td>
+                    <td class="num"><?= $d['longitude'] !== null ? fmt_num($d['longitude'], 7) : '—' ?></td>
+                    <td><?= !empty($d['installed_at']) ? e(fmt_dt($d['installed_at'])) : '—' ?></td>
+                    <td class="td-actions">
+                        <?php if ($d['latitude'] !== null): ?>
+                            <button type="button" class="btn btn-ghost btn-sm btn-fly" data-lat="<?= e($d['latitude']) ?>" data-lng="<?= e($d['longitude']) ?>" title="Tampilkan di peta"><i class="fa-solid fa-location-dot"></i></button>
+                        <?php endif; ?>
+                        <?php if (is_admin()): ?>
+                            <button type="button" class="btn btn-outline btn-sm btn-edit-loc"
+                                data-id="<?= (int)$d['id'] ?>" data-code="<?= e($d['device_code']) ?>"
+                                data-lat="<?= e($d['latitude'] !== null ? $d['latitude'] : '') ?>" data-lng="<?= e($d['longitude'] !== null ? $d['longitude'] : '') ?>"
+                                data-loc="<?= e($d['location_name'] ?? '') ?>" data-inst="<?= e($d['installed_at'] ?? '') ?>"
+                                data-notes="<?= e($d['notes'] ?? '') ?>">
+                                <i class="fa-solid fa-pen"></i> Ubah
+                            </button>
+                        <?php endif; ?>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <script>window.SKJA_BOOT=<?= safe_json($bootPayload) ?>;</script>
-<?php include __DIR__ . '/includes/footer.php'; ?>
+<?php require __DIR__ . '/includes/footer.php'; ?>

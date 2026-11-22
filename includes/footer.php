@@ -66,5 +66,15 @@
 <?php foreach (($PAGE_SCRIPTS ?? []) as $script): ?>
 <script src="assets/js/<?= e($script) ?>?v=5"></script>
 <?php endforeach; ?>
+<script>
+window.addEventListener('load', function () {
+    setTimeout(function () {
+        if (window.__skjaRevealOK) return;
+        document.querySelectorAll('html.js-anim .card:not(.in-view), html.js-anim .stat-card:not(.in-view), '
+            + 'html.js-anim .page-header:not(.in-view), html.js-anim .empty-state:not(.in-view), '
+            + 'html.js-anim .callout:not(.in-view)').forEach(function (el) { el.classList.add('in-view'); });
+    }, 2500);
+});
+</script>
 </body>
 </html>

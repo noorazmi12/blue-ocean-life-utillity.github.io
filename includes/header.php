@@ -15,10 +15,11 @@ $siteLocation = setting('site_location', 'Lokasi KJA') ?? 'Lokasi KJA';
 $userInitials = $cu ? strtoupper(substr((string)($cu['full_name'] ?: $cu['username']), 0, 1)) : 'U';
 
 $devTotal = (int)db()->query('SELECT COUNT(*) FROM devices WHERE is_active = 1')->fetchColumn();
-$devOnlineStmt = db()->prepare('SELECT COUNT(*) FROM devices WHERE is_active = 1 AND status = "online" AND last_communication >= DATE_SUB(NOW(), INTERVAL ? MINUTE)');
-$devOnlineStmt->execute([$staleMin]);
+$devCutoff = date('Y-m-d H:i:s', time() - $staleMin * 60);
+$devOnlineStmt = db()->prepare("SELECT COUNT(*) FROM devices WHERE is_active = 1 AND status = 'online' AND last_communication >= ?");
+$devOnlineStmt->execute([$devCutoff]);
 $devOnline = (int)$devOnlineStmt->fetchColumn();
-$unreadAlerts = (int)db()->query('SELECT COUNT(*) FROM alerts WHERE status = "open"')->fetchColumn();
+$unreadAlerts = (int)db()->query("SELECT COUNT(*) FROM alerts WHERE status = 'open'")->fetchColumn();
 ?><!doctype html>
 <html lang="id">
 <head>
@@ -65,7 +66,12 @@ $unreadAlerts = (int)db()->query('SELECT COUNT(*) FROM alerts WHERE status = "op
                 </nav>
             </div>
             <div class="topbar-right">
-                <a class="chip-device" href="perangkat.php" title="Perangkat aktif yang terhubung">
+                <?php if (DEMO_MODE): ?>
+                <span class="badge badge-yellow badge-demo topbar-demo" title="Data berasal dari seeder simulasi hingga perangkat nyata terhubung">
+                    <i class="fa-solid fa-flask"></i> Mode Demo
+                </span>
+                <?php endif; ?>
+                <a class="chip-device" href="perangkat.php" title="Perangkat aktif yang terhubung — klik untuk kelola perangkat">
                     <span class="dot <?= $devOnline > 0 ? 'dot-live' : 'dot-offline' ?>"></span>
                     <span id="deviceChipText"><?= $devOnline ?>/<?= $devTotal ?> Perangkat Online</span>
                 </a>
