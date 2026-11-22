@@ -1,0 +1,7 @@
+# SMART-KJA OWC — larang akses langsung ke direktori database (file SQL)
+Require all denied
+
+<IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+</IfModule>
