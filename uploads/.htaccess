@@ -1,0 +1,8 @@
+# SMART-KJA OWC — direktori uploads: nonaktifkan eksekusi PHP
+<FilesMatch "\.(php|phtml|php[0-9]|pht|phar)$">
+    Require all denied
+</FilesMatch>
+<IfModule mod_php.c>
+    php_flag engine off
+</IfModule>
+Options -Indexes -ExecCGI
