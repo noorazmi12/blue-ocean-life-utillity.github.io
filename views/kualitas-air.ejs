@@ -1,0 +1,193 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-droplet"></i> Monitoring Kualitas Air</h1>
+        <p class="page-desc">Kondisi perairan pada lokasi KJA — alat hanya mengukur <strong>suhu air</strong> dan <strong>pH</strong>.
+            Status <em>normal / peringatan / kritis</em> dihitung
+            dari ambang yang dapat disesuaikan per spesies budidaya di <a href="pengaturan.php">Pengaturan &rarr; Ambang Parameter</a>
+            — bukan ambang universal.</p>
+    </div>
+    <div class="page-actions">
+        <span id="liveStatus"><%- statusPill(status) %></span>
+        <% if (device) { %><span class="source-note"><i class="fa-solid fa-microchip"></i> <%= e(device.device_name) %></span><% } %>
+    </div>
+</div>
+
+<% if (!device || !latest) { %>
+<div class="callout callout-warn"><i class="fa-solid fa-triangle-exclamation"></i>
+    <div>Belum ada data kualitas air. Pastikan sensor kualitas air terdaftar dan mengirim data melalui <code>api/ingest.php</code>.</div>
+</div>
+<% } %>
+
+<!-- Kartu parameter -->
+<div class="stat-grid">
+    <% Object.entries(PARAMS).forEach(function([key, m]) {
+         const ev = evals[key];
+         const val = latest ? latest[key] : null;
+    %>
+    <a class="stat-card <%= ev && ev.status === 'critical' ? 'stat-red' : (ev && ev.status === 'warning' ? 'stat-yellow' : 'stat-green') %>"
+       href="kualitas-air.php?param=<%= e(key) %>&range=<%= range %>" title="Lihat grafik historis <%= e(m.label) %>">
+        <span class="stat-icon"><i class="fa-solid <%= e(m.icon) %>"></i></span>
+        <span class="stat-info">
+            <span class="stat-label"><%= e(m.label) %> <%- latest ? demoBadge(latest.is_simulated) : '' %></span>
+            <span class="stat-value"><span data-water-value="<%= e(key) %>"><%= val !== null && val !== undefined ? fmtNum(val, m.dec) : '—' %></span><span class="stat-unit"><%= e(m.unit) %></span></span>
+            <span class="stat-foot"><%= ev ? e(ev.label) : (key === 'volt_ph_v' ? 'Pembacaan analog' : '—') %> · <i class="fa-solid fa-database"></i> <%= e(m.source) %></span>
+        </span>
+    </a>
+    <% }); %>
+</div>
+
+<!-- Grafik historis -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-chart-line"></i> Grafik Historis Parameter</h3>
+            <p class="card-sub"><%= e(PARAMS[param].label) %> · <%= e(PARAMS[param].source) %></p>
+        </div>
+        <div class="card-tools">
+            <select class="form-select" id="paramSel" style="width:auto">
+                <% Object.entries(PARAMS).forEach(function([key, m]) { %>
+                    <option value="<%= e(key) %>" <%= key === param ? 'selected' : '' %>><%= e(m.label) %></option>
+                <% }); %>
+            </select>
+            <select class="form-select" id="rangeSel" style="width:auto">
+                <option value="5" <%= range === 5 ? 'selected' : '' %>>5 Menit (Detik)</option>
+                <option value="60" <%= range === 60 ? 'selected' : '' %>>1 Jam</option>
+                <option value="360" <%= range === 360 ? 'selected' : '' %>>6 Jam</option>
+                <option value="1440" <%= range === 1440 ? 'selected' : '' %>>24 Jam</option>
+                <option value="4320" <%= range === 4320 ? 'selected' : '' %>>3 Hari</option>
+                <option value="10080" <%= range === 10080 ? 'selected' : '' %>>7 Hari</option>
+            </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-box"><canvas id="chartWater"></canvas></div>
+    </div>
+</div>
+
+<!-- Tabel pengukuran -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-table-list"></i> Tabel Data Pengukuran</h3>
+            <p class="card-sub">Total <%= fmtNum(total, 0) %> pengukuran pada rentang terpilih</p>
+        </div>
+        <div class="card-tools no-print">
+            <a class="btn btn-outline btn-sm" href="kualitas-air.php?export=csv&from=<%= e(hFrom) %>&to=<%= e(hTo) %>">
+                <i class="fa-solid fa-file-csv"></i> Ekspor CSV
+            </a>
+        </div>
+    </div>
+    <div class="card-body no-print" style="padding-bottom:0">
+        <form method="get" action="kualitas-air.php" class="input-group">
+            <input type="hidden" name="param" value="<%= e(param) %>">
+            <input type="date" class="form-control" name="from" value="<%= e(hFrom) %>">
+            <span>—</span>
+            <input type="date" class="form-control" name="to" value="<%= e(hTo) %>">
+            <input type="hidden" name="range" value="<%= range %>">
+            <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
+        </form>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Waktu</th><th>Suhu (°C)</th><th>pH</th><th>Tegangan Modul pH (V)</th><th>Sumber</th>
+                </tr>
+            </thead>
+            <tbody>
+            <% if (!rows.length) { %>
+                <tr><td colspan="5"><div class="empty-state"><i class="fa-regular fa-folder-open"></i><p>Tidak ada data pada rentang ini.</p></div></td></tr>
+            <% } %>
+            <% rows.forEach(function(r) { %>
+                <tr>
+                    <td class="table-strong"><%= e(fmtDt(r.measured_at)) %></td>
+                    <td class="num"><%= fmtNum(r.temp_sensor_c, 1) %></td>
+                    <td class="num"><%= fmtNum(r.ph, 2) %></td>
+                    <td class="num"><%= fmtNum(r.volt_ph_v, 3) %></td>
+                    <td><%- demoBadge(r.is_simulated) || '<span class="badge badge-green">Sensor</span>' %></td>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+    <% if (pages > 1) { %>
+    <div class="pagination">
+        <span class="page-info">Halaman <%= page %> dari <%= pages %></span>
+        <% if (page > 1) { %><a href="<%= e(qsMerge({ page: page - 1 })) %>"><i class="fa-solid fa-angle-left"></i></a><% } %>
+        <% for (let p = Math.max(1, page - 2); p <= Math.min(pages, page + 2); p++) { %>
+            <% if (p === page) { %><span class="page-cur"><%= p %></span>
+            <% } else { %><a href="<%= e(qsMerge({ page: p })) %>"><%= p %></a><% } %>
+        <% } %>
+        <% if (page < pages) { %><a href="<%= e(qsMerge({ page: page + 1 })) %>"><i class="fa-solid fa-angle-right"></i></a><% } %>
+    </div>
+    <% } %>
+</div>
+
+<div class="grid-2">
+    <!-- Riwayat peringatan air -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-bell"></i> Riwayat Peringatan Kualitas Air</h3>
+                <p class="card-sub">8 kejadian terakhir berdasarkan ambang terkonfigurasi</p>
+            </div>
+        </div>
+        <div class="alert-list">
+            <% if (!waterAlerts.length) { %>
+                <div class="empty-state"><i class="fa-regular fa-bell-slash"></i><p>Tidak ada peringatan kualitas air.</p></div>
+            <% } %>
+            <% waterAlerts.forEach(function(al) { %>
+            <a class="alert-item <%= al.status === 'resolved' ? 'resolved' : '' %>" href="peringatan.php?id=<%= al.id %>">
+                <span class="a-icon <%= e(al.severity) %>">
+                    <i class="fa-solid <%= al.severity === 'critical' ? 'fa-circle-exclamation' : (al.severity === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info') %>"></i>
+                </span>
+                <span class="a-body">
+                    <span class="a-title"><%= e(al.title) %></span>
+                    <span class="a-msg"><%= e(al.message) %></span>
+                    <span class="a-meta"><span><i class="fa-regular fa-clock"></i> <%= e(timeAgo(al.occurred_at)) %></span><span><%= al.status === 'open' ? 'Belum ditangani' : 'Selesai' %></span></span>
+                </span>
+            </a>
+            <% }); %>
+        </div>
+    </div>
+
+    <!-- Info kalibrasi -->
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-screwdriver-wrench"></i> Status Kalibrasi Sensor</h3>
+                <p class="card-sub">Waktu pembaruan data &amp; kondisi peralatan</p>
+            </div>
+        </div>
+        <div class="card-body">
+            <dl class="kv">
+                <dt>Waktu pembaruan data</dt><dd><%= latest ? e(fmtDt(latest.measured_at)) : '—' %></dd>
+                <dt>Status data</dt><dd><%- statusPill(status) %></dd>
+                <% if (device) { %>
+                <dt>Perangkat</dt><dd><%= e(device.device_name) %> (<%= e(device.device_code) %>)</dd>
+                <dt>Status kalibrasi</dt>
+                <dd><%
+                    const calMap = {
+                      calibrated: ['badge-green', 'Terkalibrasi'],
+                      due: ['badge-yellow', 'Jatuh tempo'],
+                      overdue: ['badge-red', 'Terlambat'],
+                      none: ['badge-gray', 'Tidak dicatat']
+                    };
+                    const [cls, lbl] = calMap[device.calibration_status] || calMap.none;
+                    %><span class="badge <%= cls %>"><i class="fa-solid fa-certificate"></i><%= e(lbl) %></span></dd>
+                <dt>Tanggal kalibrasi terakhir</dt><dd><%= device.calibration_date ? e(fmtDt(device.calibration_date)) : '—' %></dd>
+                <dt>Komunikasi terakhir</dt><dd><%= e(timeAgo(device.last_communication)) %></dd>
+                <% } %>
+            </dl>
+            <p class="form-hint" style="margin-top:12px">
+                <i class="fa-solid fa-circle-question"></i> Ambang batas parameter dapat diubah per spesies pada
+                <a href="pengaturan.php">Pengaturan &rarr; Ambang Parameter</a>.
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>window.SKJA_BOOT=<%- safeJson(bootPayload) %>;</script>
+<%- include('./partials/footer') %>

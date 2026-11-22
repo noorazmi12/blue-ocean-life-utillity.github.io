@@ -1,0 +1,163 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-water"></i> Monitoring Gelombang</h1>
+        <p class="page-desc">Kondisi gelombang laut real-time pada lokasi KJA: tinggi, periode, arah gelombang, angin,
+            serta estimasi wave power. Data diambil dari sensor melalui API (bukan simulasi angka di sisi browser).</p>
+    </div>
+    <div class="page-actions">
+        <span id="liveStatus"><%- statusPill(status) %></span>
+        <span class="source-note"><i class="fa-solid fa-microchip"></i> <%= wave ? e(wave.device_name) : 'Sensor belum terhubung' %></span>
+    </div>
+</div>
+
+<% if (!wave) { %>
+<div class="callout callout-warn"><i class="fa-solid fa-triangle-exclamation"></i>
+    <div>Belum ada data gelombang. Pastikan sensor terdaftar di menu <a href="perangkat.php">Manajemen Perangkat</a>
+    dan mengirim data melalui <code>api/ingest.php</code>.</div>
+</div>
+<% } else if (status !== 'live') { %>
+<div class="callout callout-warn"><i class="fa-solid fa-hourglass-half"></i>
+    <div>Status sensor <strong><%= e(dataStatusLabel(status)) %></strong> — data terakhir diterima
+        <%= e(timeAgo(wave.measured_at)) %>. Grafik akan otomatis berubah ke LIVE saat data baru masuk.</div>
+</div>
+<% } %>
+
+<!-- Kartu statistik gelombang -->
+<div class="stat-grid cols-5">
+    <div class="stat-card stat-blue">
+        <span class="stat-icon"><i class="fa-solid fa-wave-square"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Tinggi Terakhir <%- wave ? demoBadge(wave.is_simulated) : '' %></span>
+            <span class="stat-value" id="curHeight"><%= wave ? fmtNum(wave.wave_height_m, 2) : '—' %><span class="stat-unit">m</span></span>
+            <span class="stat-foot" id="curTime"><%= wave ? e(timeAgo(wave.measured_at)) : '—' %></span>
+        </span>
+    </div>
+    <div class="stat-card stat-navy">
+        <span class="stat-icon"><i class="fa-solid fa-arrows-up-down"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Min / Max / Rata²</span>
+            <span class="stat-value" id="statMinMax" style="font-size:17px"><%= fmtNum(stats.hmin, 2) %> / <%= fmtNum(stats.hmax, 2) %> / <%= fmtNum(stats.havg, 2) %><span class="stat-unit">m</span></span>
+            <span class="stat-foot">pada rentang terpilih</span>
+        </span>
+    </div>
+    <div class="stat-card stat-green">
+        <span class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Periode Gelombang</span>
+            <span class="stat-value" id="curPeriod"><%= wave ? fmtNum(wave.wave_period_s, 1) : '—' %><span class="stat-unit">s</span></span>
+            <span class="stat-foot">arah <%= wave ? e(degToCompass(wave.wave_direction_deg)) : '—' %> (<%= wave && wave.wave_direction_deg !== null ? fmtNum(wave.wave_direction_deg, 0) + '°' : '—' %>)</span>
+        </span>
+    </div>
+    <div class="stat-card stat-navy">
+        <span class="stat-icon"><i class="fa-solid fa-wind"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Angin</span>
+            <span class="stat-value" id="curWind"><%= wave && wave.wind_speed_ms !== null ? fmtNum(wave.wind_speed_ms, 1) : '—' %><span class="stat-unit">m/s</span></span>
+            <span class="stat-foot">arah <%= wave ? e(degToCompass(wave.wind_direction_deg)) : '—' %></span>
+        </span>
+    </div>
+    <div class="stat-card stat-yellow">
+        <span class="stat-icon"><i class="fa-solid fa-water-cursor"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Wave Power (estimasi)</span>
+            <span class="stat-value" id="curKw"><%= wave ? fmtNum(wavePowerKw(wave.wave_height_m, wave.wave_period_s), 2) : '—' %><span class="stat-unit">kW/m</span></span>
+            <span class="stat-foot">P ≈ 0,49 · H² · T</span>
+        </span>
+    </div>
+</div>
+
+<!-- Grafik real-time -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-chart-line"></i> Tinggi Gelombang terhadap Waktu</h3>
+            <p class="card-sub">Grafik diperbarui otomatis setiap <%= settingInt('dashboard_refresh_seconds', 15) %> detik</p>
+        </div>
+        <div class="card-tools">
+            <div class="filter-chips" id="rangeChips">
+                <a class="chip <%= range === 15 ? 'active' : '' %>" href="gelombang.php?range=15">15 Menit</a>
+                <a class="chip <%= range === 60 ? 'active' : '' %>" href="gelombang.php?range=60">1 Jam</a>
+                <a class="chip <%= range === 360 ? 'active' : '' %>" href="gelombang.php?range=360">6 Jam</a>
+                <a class="chip <%= range === 1440 ? 'active' : '' %>" href="gelombang.php?range=1440">24 Jam</a>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="btnCustom">
+                <i class="fa-regular fa-calendar"></i> Periode Khusus
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="get" action="gelombang.php" id="customForm" hidden class="input-group no-print" style="margin-bottom:14px">
+            <input type="date" class="form-control" name="from" value="<%= e(customFrom || defFrom) %>" required>
+            <span>—</span>
+            <input type="date" class="form-control" name="to" value="<%= e(customTo || defTo) %>" required>
+            <input type="hidden" name="range" value="0">
+            <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Terapkan</button>
+        </form>
+        <div class="chart-box" id="waveChartBox"><canvas id="chartWave"></canvas></div>
+    </div>
+</div>
+
+<!-- Histori data -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-table-list"></i> Histori Data Gelombang</h3>
+            <p class="card-sub">Total <%= fmtNum(total, 0) %> pengukuran pada rentang terpilih</p>
+        </div>
+        <div class="card-tools no-print">
+            <a class="btn btn-outline btn-sm" href="gelombang.php?export=csv&from=<%= e(hFrom) %>&to=<%= e(hTo) %>">
+                <i class="fa-solid fa-file-csv"></i> Ekspor CSV
+            </a>
+        </div>
+    </div>
+    <div class="card-body no-print" style="padding-bottom:0">
+        <form method="get" action="gelombang.php" class="input-group">
+            <input type="date" class="form-control" name="from" value="<%= e(hFrom) %>">
+            <span>—</span>
+            <input type="date" class="form-control" name="to" value="<%= e(hTo) %>">
+            <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-filter"></i> Filter</button>
+        </form>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Waktu</th><th>Tinggi (m)</th><th>Periode (s)</th><th>Arah Gelombang</th>
+                    <th>Angin (m/s)</th><th>Arah Angin</th><th>Sumber</th>
+                </tr>
+            </thead>
+            <tbody>
+            <% if (!rows.length) { %>
+                <tr><td colspan="7"><div class="empty-state"><i class="fa-regular fa-folder-open"></i><p>Tidak ada data pada rentang ini.</p></div></td></tr>
+            <% } %>
+            <% rows.forEach(function(r) { %>
+                <tr>
+                    <td class="table-strong"><%= e(fmtDt(r.measured_at)) %></td>
+                    <td class="num"><%= fmtNum(r.wave_height_m, 3) %></td>
+                    <td class="num"><%= fmtNum(r.wave_period_s, 2) %></td>
+                    <td><%= e(degToCompass(r.wave_direction_deg)) %> (<%= r.wave_direction_deg !== null ? fmtNum(r.wave_direction_deg, 0) + '°' : '—' %>)</td>
+                    <td class="num"><%= r.wind_speed_ms !== null ? fmtNum(r.wind_speed_ms, 2) : '—' %></td>
+                    <td><%= e(degToCompass(r.wind_direction_deg)) %></td>
+                    <td><%- demoBadge(r.is_simulated) || '<span class="badge badge-green">Sensor</span>' %></td>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+    <% if (pages > 1) { %>
+    <div class="pagination">
+        <span class="page-info">Halaman <%= page %> dari <%= pages %></span>
+        <% if (page > 1) { %><a href="<%= e(qsMerge({ page: page - 1 })) %>"><i class="fa-solid fa-angle-left"></i></a><% } %>
+        <% for (let p = Math.max(1, page - 2); p <= Math.min(pages, page + 2); p++) { %>
+            <% if (p === page) { %><span class="page-cur"><%= p %></span>
+            <% } else { %><a href="<%= e(qsMerge({ page: p })) %>"><%= p %></a><% } %>
+        <% } %>
+        <% if (page < pages) { %><a href="<%= e(qsMerge({ page: page + 1 })) %>"><i class="fa-solid fa-angle-right"></i></a><% } %>
+    </div>
+    <% } %>
+</div>
+
+<script>window.SKJA_BOOT=<%- safeJson(bootPayload) %>;</script>
+<%- include('./partials/footer') %>

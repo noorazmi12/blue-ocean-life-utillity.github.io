@@ -1,0 +1,206 @@
+<%- include('./partials/header') %>
+
+<div class="print-header">
+    <h2 style="margin:0"><%= e(APP_NAME) %> — Laporan <%= e(types[type]) %></h2>
+    <p style="margin:4px 0">Periode: <%= e(fmtDt(from + ' 00:00:00')) %> s.d. <%= e(fmtDt(to + ' 23:59:59')) %> · Dicetak: <%= e(printedAt) %></p>
+</div>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-clipboard-list"></i> Histori &amp; Laporan</h1>
+        <p class="page-desc">Riwayat pengukuran seluruh sistem dengan ringkasan harian, mingguan, dan bulanan.
+            Ekspor CSV untuk analisis lanjutan atau gunakan tombol cetak untuk laporan kertas/PDF.</p>
+    </div>
+    <div class="page-actions no-print">
+        <a class="btn btn-outline btn-sm" href="laporan.php?export=csv&type=<%= e(type) %>&from=<%= e(from) %>&to=<%= e(to) %>&period=<%= e(period) %>">
+            <i class="fa-solid fa-file-csv"></i> Ekspor CSV
+        </a>
+        <button type="button" class="btn btn-primary btn-sm" onclick="window.print()">
+            <i class="fa-solid fa-print"></i> Cetak Laporan
+        </button>
+    </div>
+</div>
+
+<!-- Filter laporan -->
+<div class="card no-print">
+    <div class="card-body">
+        <form method="get" action="laporan.php" class="input-group">
+            <select class="form-select" name="type">
+                <% Object.entries(types).forEach(function([k, lbl]) { %>
+                    <option value="<%= e(k) %>" <%= type === k ? 'selected' : '' %>>Histori <%= e(lbl) %></option>
+                <% }); %>
+            </select>
+            <select class="form-select" name="period" id="periodSel">
+                <% Object.entries(validPeriods).forEach(function([k, lbl]) { %>
+                    <option value="<%= e(k) %>" <%= period === k ? 'selected' : '' %>><%= e(lbl) %></option>
+                <% }); %>
+            </select>
+            <span id="customRange" <%= period === 'custom' ? '' : 'hidden' %>>
+                <input type="date" class="form-control" name="from" value="<%= e(from) %>"> —
+                <input type="date" class="form-control" name="to" value="<%= e(to) %>">
+            </span>
+            <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-magnifying-glass"></i> Tampilkan</button>
+        </form>
+    </div>
+</div>
+
+<!-- Ringkasan -->
+<div class="stat-grid cols-5">
+    <div class="stat-card stat-navy">
+        <span class="stat-icon"><i class="fa-solid fa-database"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Total Data Periode</span>
+            <span class="stat-value"><%= fmtNum(totalPeriodCount, 0) %></span>
+            <span class="stat-foot"><%= e(validPeriods[period]) %></span>
+        </span>
+    </div>
+    <div class="stat-card stat-blue">
+        <span class="stat-icon"><i class="fa-solid fa-calendar-day"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Hari Ini</span>
+            <span class="stat-value"><%= fmtNum(todayCount, 0) %></span>
+            <span class="stat-foot">pengukuran</span>
+        </span>
+    </div>
+    <div class="stat-card stat-green">
+        <span class="stat-icon"><i class="fa-solid fa-calendar-week"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Minggu Ini (7 hari)</span>
+            <span class="stat-value"><%= fmtNum(weekN, 0) %></span>
+            <span class="stat-foot">pengukuran</span>
+        </span>
+    </div>
+    <div class="stat-card stat-yellow">
+        <span class="stat-icon"><i class="fa-solid fa-calendar"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Bulan Ini</span>
+            <span class="stat-value"><%= fmtNum(monthN, 0) %></span>
+            <span class="stat-foot">pengukuran sejak tgl 1</span>
+        </span>
+    </div>
+    <div class="stat-card stat-blue">
+        <span class="stat-icon"><i class="fa-solid fa-hourglass-end"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Rentang Laporan</span>
+            <span class="stat-value" style="font-size:14px"><%= e(from) %><br>s.d. <%= e(to) %></span>
+        </span>
+    </div>
+</div>
+
+<!-- Grafik & ringkasan harian -->
+<div class="grid-2-1">
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h3 class="card-title"><i class="fa-solid fa-chart-line"></i> Grafik Historis — <%= e(types[type]) %></h3>
+                <p class="card-sub">
+                    <% if (type === 'wave') { %>Rata-rata tinggi gelombang harian (m)
+                    <% } else if (type === 'energy') { %>Produksi energi harian (kWh)
+                    <% } else if (type === 'water') { %>Rata-rata suhu air harian (°C)
+                    <% } else { %>Maksimum jumlah ikan terdeteksi per hari<% } %>
+                </p>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="chart-box sm"><canvas id="chartReport"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <div><h3 class="card-title"><i class="fa-solid fa-list-ol"></i> Ringkasan Harian</h3></div>
+        </div>
+        <div class="table-wrap" style="max-height:320px;overflow-y:auto">
+            <table class="table">
+                <thead><tr><th>Tanggal</th><th>Data</th>
+                    <% if (type === 'wave') { %><th>Min (m)</th><th>Maks (m)</th><th>Rata² (m)</th>
+                    <% } else if (type === 'energy') { %><th>Energi (Wh)</th><th>Puncak (W)</th><th>Rata² (W)</th>
+                    <% } else if (type === 'water') { %><th>pH Min</th><th>pH Maks</th><th>Suhu Rata²</th>
+                    <% } else { %><th>Maks Deteksi</th><th>Panjang Rata²</th><th>Biomassa (kg)</th><% } %>
+                </tr></thead>
+                <tbody>
+                <% if (!summary.length) { %>
+                    <tr><td colspan="6"><div class="empty-state"><i class="fa-regular fa-folder-open"></i><p>Tidak ada data.</p></div></td></tr>
+                <% } %>
+                <% summary.forEach(function(r) { %>
+                    <tr>
+                        <td class="table-strong"><%= e(r.d) %></td>
+                        <td class="num"><%= fmtNum(r.n, 0) %></td>
+                        <% if (type === 'wave') { %>
+                            <td class="num"><%= fmtNum(r.v1, 2) %></td><td class="num"><%= fmtNum(r.v2, 2) %></td><td class="num"><%= fmtNum(r.v3, 2) %></td>
+                        <% } else if (type === 'energy') { %>
+                            <td class="num"><%= fmtNum(r.v1, 1) %></td><td class="num"><%= fmtNum(r.v2, 1) %></td><td class="num"><%= fmtNum(r.v3, 1) %></td>
+                        <% } else if (type === 'water') { %>
+                            <td class="num"><%= fmtNum(r.v1, 2) %></td><td class="num"><%= fmtNum(r.v2, 2) %></td>
+                            <td class="num"><%= fmtNum(r.v3, 1) %></td>
+                        <% } else { %>
+                            <td class="num"><%= r.v1 !== null ? fmtNum(r.v1, 0) : '—' %></td>
+                            <td class="num"><%= r.v2 !== null ? fmtNum(r.v2, 1) : '—' %></td>
+                            <td class="num"><%= r.v3 !== null ? fmtNum(r.v3, 2) : '—' %></td>
+                        <% } %>
+                    </tr>
+                <% }); %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Tabel pengukuran terakhir -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-table-list"></i> <%= lastRows.length %> Pengukuran Terakhir — <%= e(types[type]) %></h3>
+            <p class="card-sub">Tabel lengkap tersedia melalui ekspor CSV</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+            <% if (type === 'wave') { %>
+                <tr><th>Waktu</th><th>Perangkat</th><th>Tinggi (m)</th><th>Periode (s)</th><th>Angin (m/s)</th><th>Sumber</th></tr>
+            <% } else if (type === 'energy') { %>
+                <tr><th>Waktu</th><th>Perangkat</th><th>Daya (W)</th><th>Tegangan (V)</th><th>Arus (A)</th><th>Energi (Wh)</th><th>Sumber</th></tr>
+            <% } else if (type === 'water') { %>
+                <tr><th>Waktu</th><th>Perangkat</th><th>Suhu (°C)</th><th>pH</th><th>Sumber</th></tr>
+            <% } else { %>
+                <tr><th>Waktu</th><th>Perangkat</th><th>Deteksi</th><th>Manual</th><th>Panjang</th><th>Biomassa</th><th>Status</th></tr>
+            <% } %>
+            </thead>
+            <tbody>
+            <% if (!lastRows.length) { %>
+                <tr><td colspan="8"><div class="empty-state"><i class="fa-regular fa-folder-open"></i><p>Tidak ada data.</p></div></td></tr>
+            <% } %>
+            <% lastRows.forEach(function(r) { %>
+                <% if (type === 'wave') { %>
+                    <tr><td class="table-strong"><%= e(fmtDt(r.measured_at)) %></td><td><%= e(r.device_code) %></td>
+                        <td class="num"><%= fmtNum(r.wave_height_m, 3) %></td><td class="num"><%= fmtNum(r.wave_period_s, 2) %></td>
+                        <td class="num"><%= fmtNum(r.wind_speed_ms, 2) %></td><td><%- demoBadge(r.is_simulated) || '<span class="badge badge-green">Sensor</span>' %></td></tr>
+                <% } else if (type === 'energy') { %>
+                    <tr><td class="table-strong"><%= e(fmtDt(r.measured_at)) %></td><td><%= e(r.device_code) %></td>
+                        <td class="num"><%= fmtNum(r.power_w, 1) %></td><td class="num"><%= fmtNum(r.voltage_v, 1) %></td>
+                        <td class="num"><%= fmtNum(r.current_a, 2) %></td><td class="num"><%= fmtNum(r.energy_wh, 1) %></td>
+                        <td><%- demoBadge(r.is_simulated) || '<span class="badge badge-green">Sensor</span>' %></td></tr>
+                <% } else if (type === 'water') { %>
+                    <tr><td class="table-strong"><%= e(fmtDt(r.measured_at)) %></td><td><%= e(r.device_code) %></td>
+                        <td class="num"><%= fmtNum(r.temp_sensor_c, 1) %></td>
+                        <td class="num"><%= fmtNum(r.ph, 2) %></td>
+                        <td><%- demoBadge(r.is_simulated) || '<span class="badge badge-green">Sensor</span>' %></td></tr>
+                <% } else { %>
+                    <tr><td class="table-strong"><%= e(fmtDt(r.created_at)) %></td><td><%= e(r.device_code || '—') %></td>
+                        <td class="num"><%= r.detected_count !== null ? fmtNum(r.detected_count, 0) : '—' %></td>
+                        <td class="num"><%= r.manual_count !== null ? fmtNum(r.manual_count, 0) : '—' %></td>
+                        <td class="num"><%= r.avg_length_cm !== null ? fmtNum(r.avg_length_cm, 1) + ' cm' : '—' %></td>
+                        <td class="num"><%= r.biomass_kg !== null ? fmtNum(r.biomass_kg, 2) + ' kg' : '—' %></td>
+                        <td><span class="badge <%= r.processing_status === 'done' ? 'badge-green' : (r.processing_status === 'no_ai' ? 'badge-yellow' : 'badge-gray') %>"><%= e(r.processing_status) %></span>
+                        <%- demoBadge(r.is_simulated) %></td></tr>
+                <% } %>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script id="reportData" type="application/json"><%- safeJson(chartData) %></script>
+
+<%- include('./partials/footer') %>

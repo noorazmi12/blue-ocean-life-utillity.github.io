@@ -1,0 +1,112 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-magnifying-glass-chart"></i> Analitik Kualitas Air</h1>
+        <p class="page-desc">Analisis penyimpangan pembacaan <strong>suhu air dan pH</strong> dari data sensor dalam 24 jam terakhir, menggunakan metode statistik Z-Score.</p>
+    </div>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card stat-green">
+        <span class="stat-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Deteksi Anomali Air</span>
+            <span class="stat-value" style="font-size:16px">Z-Score Aktif</span>
+            <span class="stat-foot">Ambang |Z| &gt; 2,5</span>
+        </span>
+    </div>
+    <div class="stat-card stat-blue">
+        <span class="stat-icon"><i class="fa-solid fa-temperature-half"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Data Suhu (24 jam)</span>
+            <span class="stat-value"><%= sampleCounts.temp_sensor_c || 0 %></span>
+            <span class="stat-foot">pembacaan valid tersedia</span>
+        </span>
+    </div>
+    <div class="stat-card stat-blue">
+        <span class="stat-icon"><i class="fa-solid fa-vial"></i></span>
+        <span class="stat-info">
+            <span class="stat-label">Data pH (24 jam)</span>
+            <span class="stat-value"><%= sampleCounts.ph || 0 %></span>
+            <span class="stat-foot">pembacaan valid tersedia</span>
+        </span>
+    </div>
+</div>
+
+<div class="callout callout-info" style="margin-top:16px">
+    <i class="fa-solid fa-circle-info"></i>
+    <div><strong>Transparansi metode:</strong> Z-Score adalah <strong>analisis statistik</strong>, bukan model machine learning yang dilatih. Anomali berarti nilai menyimpang dari pola 24 jam terakhir, bukan otomatis menunjukkan air tidak aman bagi ikan.</div>
+</div>
+
+<div class="card" style="margin-top:18px">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-chart-line"></i> Deteksi Anomali Kualitas Air (|Z| &gt; 2,5)</h3>
+            <p class="card-sub">Suhu dan pH · data 24 jam terakhir · garis putus-putus adalah batas statistik ±2,5</p>
+        </div>
+    </div>
+    <div class="card-body">
+        <% if (hasChart) { %>
+            <div class="chart-box xs"><canvas id="chartAnomaly"></canvas></div>
+        <% } else { %>
+            <div class="empty-state"><i class="fa-solid fa-chart-line"></i><p>Belum cukup data untuk menampilkan Z-Score. Diperlukan minimal 10 pembacaan per parameter dengan variasi nilai.</p></div>
+        <% } %>
+        <div class="table-wrap" style="margin-top:14px">
+            <table class="table">
+                <thead><tr><th>Waktu</th><th>Parameter</th><th>Nilai</th><th>Z-Score</th><th>Rata-rata / SD</th></tr></thead>
+                <tbody>
+                <% if (!anomalies.length) { %>
+                    <tr><td colspan="5"><div class="empty-state"><i class="fa-regular fa-circle-check"></i><p>Tidak ada anomali terdeteksi atau data belum cukup dalam 24 jam terakhir.</p></div></td></tr>
+                <% } %>
+                <% anomalies.forEach(function(a) { %>
+                    <tr>
+                        <td class="table-strong"><%= e(fmtDt(a.time)) %></td>
+                        <td><%= e(paramLabel(a.param)) %></td>
+                        <td class="num"><%= fmtNum(a.value, 2) %></td>
+                        <td><span class="badge <%= Math.abs(a.z) > 3 ? 'badge-red' : 'badge-yellow' %>">z = <%= fmtNum(a.z, 2) %></span></td>
+                        <td class="num"><%= fmtNum(a.mean, 2) %> / <%= fmtNum(a.sd, 2) %></td>
+                    </tr>
+                <% }); %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script id="waterAnomalyData" type="application/json"><%- safeJson(anomalyChart) %></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const canvas = document.getElementById('chartAnomaly');
+    const dataTag = document.getElementById('waterAnomalyData');
+    if (!canvas || !dataTag) return;
+    if (!window.Chart) {
+        console.warn('Chart.js belum tersedia untuk grafik anomali.');
+        return;
+    }
+    const data = JSON.parse(dataTag.textContent);
+    const items = [];
+    Object.entries({temp_sensor_c:'Suhu', ph:'pH'}).forEach(([key, label]) => {
+        (data[key] || []).forEach(p => items.push({...p, label}));
+    });
+    items.sort((a, b) => a.time.localeCompare(b.time));
+    if (!items.length) return;
+    const labels = items.map(p => p.time + ' · ' + p.label);
+    const values = items.map(p => p.z);
+    new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {label:'Z-Score pembacaan', data:values, borderColor:'#3090A8', backgroundColor:'rgba(48,144,168,.1)', pointRadius:2, tension:.1},
+                {label:'Batas +2,5', data:labels.map(() => 2.5), borderColor:'#E5484D', borderDash:[6,5], pointRadius:0, borderWidth:1},
+                {label:'Batas -2,5', data:labels.map(() => -2.5), borderColor:'#E5484D', borderDash:[6,5], pointRadius:0, borderWidth:1}
+            ]
+        },
+        options: {responsive:true, maintainAspectRatio:false, animation:false,
+            plugins:{legend:{display:true}},
+            scales:{x:{ticks:{maxTicksLimit:8,maxRotation:0,callback:function(value){const label=this.getLabelForValue(value);return label.split(' · ')[0].slice(11,16);}}}, y:{title:{display:true,text:'Z-Score'}}}}
+    });
+});
+</script>
+<%- include('./partials/footer') %>

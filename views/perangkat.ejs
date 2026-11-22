@@ -1,0 +1,105 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-microchip"></i> Manajemen Perangkat</h1>
+        <p class="page-desc">Kelola sensor gelombang, sensor kualitas air, unit OWC, dan kamera FishCount.
+            Setiap perangkat menerima token API untuk autentikasi pengiriman data melalui <code>api/ingest.php</code>.</p>
+    </div>
+    <div class="page-actions">
+        <% if (canEdit) { %>
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddDevice"><i class="fa-solid fa-plus"></i> Tambah Perangkat</button>
+        <% } %>
+        <span class="source-note"><i class="fa-regular fa-clock"></i> Status dihitung dari komunikasi terakhir (ambang <%= staleMin %> menit)</span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-list"></i> Daftar Perangkat (<%= devices.length %>)</h3>
+            <p class="card-sub">Perangkat nonaktif disembunyikan dari halaman monitoring</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>ID</th><th>Kode / Nama</th><th>Jenis</th><th>Lokasi</th><th>Status</th>
+                    <th>Komunikasi Terakhir</th><th>Kalibrasi</th><th class="td-actions">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+            <% devices.forEach(function(d) {
+                const active = d.is_active === 1;
+                const lastCommMs = d.last_communication ? parseDbDateMs(d.last_communication) : null;
+                let liveStatus = 'offline';
+                if (active && d.status === 'online' && lastCommMs !== null && lastCommMs > nowMs - staleMin * 60 * 1000) {
+                    liveStatus = 'live';
+                } else if (d.status === 'online' && lastCommMs !== null && lastCommMs > nowMs - staleMin * 180 * 1000) {
+                    liveStatus = 'delayed';
+                }
+                const [calCls, calLbl] = calMap[d.calibration_status] || calMap.none;
+            %>
+                <tr>
+                    <td class="num">#<%= d.id %></td>
+                    <td>
+                        <span class="table-strong"><%= e(d.device_code) %></span><br>
+                        <span class="source-note"><%= e(d.device_name) %></span>
+                        <%- !active ? '<span class="badge badge-gray">Nonaktif</span>' : '' %>
+                    </td>
+                    <td><span class="badge badge-outline"><%= e(d.device_type.replace(/_/g, ' ')) %></span></td>
+                    <td>
+                        <%= e(d.location_name || '—') %><br>
+                        <% if (d.latitude !== null) { %><span class="source-note"><%= fmtNum(d.latitude, 5) %>, <%= fmtNum(d.longitude, 5) %></span><% } %>
+                    </td>
+                    <td><%- deviceStatusBadge(active ? (d.status === 'online' ? (liveStatus === 'offline' ? 'offline' : 'online') : d.status) : 'offline') %>
+                        <%- statusPill(liveStatus) %></td>
+                    <td><%= d.last_communication ? e(timeAgo(d.last_communication)) : 'belum pernah' %></td>
+                    <td><span class="badge <%= calCls %>"><%= e(calLbl) %></span></td>
+                    <td class="td-actions">
+                        <button type="button" class="btn btn-outline btn-sm btn-detail" data-id="<%= d.id %>" data-name="<%= e(d.device_name) %>">
+                            <i class="fa-solid fa-eye"></i> Detail
+                        </button>
+                        <% if (canEdit) { %>
+                            <button type="button" class="btn btn-ghost btn-sm btn-edit"
+                                data-id="<%= d.id %>" data-code="<%= e(d.device_code) %>" data-name="<%= e(d.device_name) %>"
+                                data-type="<%= e(d.device_type) %>" data-status="<%= e(d.status) %>"
+                                data-cal="<%= e(d.calibration_status) %>" data-caldate="<%= e(d.calibration_date || '') %>"
+                                data-notes="<%= e(d.notes || '') %>" data-lat="<%= e(d.latitude !== null ? d.latitude : '') %>"
+                                data-lng="<%= e(d.longitude !== null ? d.longitude : '') %>" data-loc="<%= e(d.location_name || '') %>"
+                                title="Edit perangkat"><i class="fa-solid fa-pen"></i></button>
+                            <% if (isAdm) { %>
+                            <form method="post" style="display:inline" onsubmit="return confirm('Nonaktifkan/aktifkan perangkat <%= e(d.device_code) %>?')">
+                                <%- csrfFieldHtml %>
+                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="id" value="<%= d.id %>">
+                                <button class="btn btn-ghost btn-sm" title="<%= active ? 'Nonaktifkan' : 'Aktifkan' %> perangkat">
+                                    <i class="fa-solid <%= active ? 'fa-power-off' : 'fa-check-circle' %>"></i>
+                                </button>
+                            </form>
+                            <form method="post" style="display:inline" onsubmit="return confirm('Buat token API baru? Token lama akan tidak berlaku.')">
+                                <%- csrfFieldHtml %>
+                                <input type="hidden" name="action" value="reset_token">
+                                <input type="hidden" name="id" value="<%= d.id %>">
+                                <button class="btn btn-ghost btn-sm" title="Reset token API"><i class="fa-solid fa-key"></i></button>
+                            </form>
+                            <% } %>
+                        <% } %>
+                    </td>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="callout callout-info">
+    <i class="fa-solid fa-plug"></i>
+    <div><strong>Integrasi perangkat:</strong> kirim pengukuran melalui <code>POST api/ingest.php</code> dengan JSON
+        berisi <code>device_code</code>, <code>api_key</code> (token asli), <code>timestamp</code>, dan <code>data</code>.
+        Dokumentasi lengkap ada di <code>README.md</code> bagian API. Token disimpan sebagai hash SHA-256 —
+        token asli hanya ditampilkan saat dibuat.</div>
+</div>
+
+<%- include('./partials/footer') %>

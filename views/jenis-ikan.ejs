@@ -1,0 +1,109 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-fish-fins"></i> Jenis Ikan</h1>
+        <p class="page-desc">Katalog jenis ikan yang dipelihara di KJA Anda: rentang kualitas air ideal,
+            durasi siklus panen, dan koefisien panjang–berat untuk estimasi biomassa FishCount.
+            <%= nActive %> jenis aktif dari total <%= species.length %>.</p>
+    </div>
+    <div class="page-actions">
+        <% if (canEdit) { %>
+            <button type="button" class="btn btn-primary" id="btnAddSpecies">
+                <i class="fa-solid fa-plus"></i> Tambah Jenis Ikan
+            </button>
+        <% } %>
+    </div>
+</div>
+
+<div class="callout callout-info">
+    <i class="fa-solid fa-link"></i>
+    <div><strong>Keterkaitan fitur:</strong> nama jenis ikan di sini bisa dipakai sebagai <em>Spesies</em> pada
+        ambang parameter di <a href="pengaturan.php">Pengaturan</a> — centang <em>"Simpan ambang kualitas air"</em>
+        saat menambah/mengedit agar rentang ideal di bawah otomatis menjadi ambang evaluasi
+        <a href="kualitas-air.php">Kualitas Air</a> &amp; <a href="peringatan.php">Peringatan</a>.
+        Koefisien panjang–berat <code>W(g) = a·L<sup>b</sup></code> dipakai FishCount mengubah panjang rata-rata
+        hasil kamera menjadi estimasi biomassa.</div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-list"></i> Daftar Jenis Ikan KJA</h3>
+            <p class="card-sub">Rentang ideal bersifat acuan budidaya — sesuaikan dengan kondisi lokasi Anda</p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Jenis Ikan</th><th>Kategori</th><th>Suhu Ideal</th><th>pH Ideal</th>
+                    <th>Salinitas</th><th>Siklus Panen</th><th>Koef. L–W</th><th>Ambang</th><th>Status</th>
+                    <% if (canEdit) { %><th>Aksi</th><% } %>
+                </tr>
+            </thead>
+            <tbody>
+            <% if (!species.length) { %>
+                <tr><td colspan="10"><div class="empty-state"><i class="fa-solid fa-fish"></i>
+                    <p>Belum ada jenis ikan. Klik "Tambah Jenis Ikan" untuk memulai.</p></div></td></tr>
+            <% } %>
+            <% species.forEach(function(s) { %>
+                <tr>
+                    <td class="table-strong">
+                        <%= e(s.name) %>
+                        <% if (s.latin_name) { %><br><small style="color:var(--muted);font-style:italic"><%= e(s.latin_name) %></small><% } %>
+                        <% if (s.description) { %><br><small style="color:var(--muted)"><%= e(strTrimWidth(s.description, 70, '…')) %></small><% } %>
+                    </td>
+                    <td><span class="badge <%= CAT_BADGE[s.category] %>"><%= e(CATEGORIES[s.category]) %></span></td>
+                    <td class="num"><%= s.optimal_temp_min !== null ? fmtNum(s.optimal_temp_min, 1) + '–' + fmtNum(s.optimal_temp_max, 1) + ' °C' : '—' %></td>
+                    <td class="num"><%= s.optimal_ph_min !== null ? fmtNum(s.optimal_ph_min, 1) + '–' + fmtNum(s.optimal_ph_max, 1) : '—' %></td>
+                    <td class="num"><%= s.optimal_salinity_min !== null ? fmtNum(s.optimal_salinity_min, 0) + '–' + fmtNum(s.optimal_salinity_max, 0) + ' ppt' : '—' %></td>
+                    <td class="num"><%= s.cycle_months_min !== null ? fmtNum(s.cycle_months_min, 0) + '–' + fmtNum(s.cycle_months_max, 0) + ' bln' : '—' %>
+                        <% if (s.target_weight_kg !== null) { %><br><small style="color:var(--muted)">± <%= fmtNum(s.target_weight_kg, 2) %> kg/ekor</small><% } %>
+                    </td>
+                    <td class="num"><small>a = <%= fmtNum(s.lw_a, 4) %><br>b = <%= fmtNum(s.lw_b, 3) %></small></td>
+                    <td><%- s.threshold_count > 0
+                        ? '<span class="badge badge-green"><i class="fa-solid fa-check"></i> ' + s.threshold_count + ' param</span>'
+                        : '<span class="source-note">—</span>' %></td>
+                    <td><%- s.is_active ? '<span class="badge badge-green">Aktif</span>' : '<span class="badge badge-gray">Nonaktif</span>' %></td>
+                    <% if (canEdit) { %>
+                    <td>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap">
+                            <button type="button" class="btn btn-outline btn-sm btn-edit"
+                                    data-species="<%= e(JSON.stringify(s)) %>">
+                                <i class="fa-solid fa-pen"></i> Edit</button>
+                            <form method="post" action="jenis-ikan.php" style="display:inline"
+                                  onsubmit="return confirm('Ubah status aktif jenis ikan &quot;<%= e(s.name) %>&quot;?')">
+                                <%- csrfFieldHtml %>
+                                <input type="hidden" name="action" value="toggle">
+                                <input type="hidden" name="id" value="<%= s.id %>">
+                                <button type="submit" class="btn btn-outline btn-sm" title="Aktif/Nonaktifkan">
+                                    <i class="fa-solid fa-power-off"></i></button>
+                            </form>
+                            <form method="post" action="jenis-ikan.php" style="display:inline"
+                                  onsubmit="return confirm('HAPUS jenis ikan &quot;<%= e(s.name) %>&quot;? Tindakan ini tidak dapat dibatalkan.')">
+                                <%- csrfFieldHtml %>
+                                <input type="hidden" name="action" value="delete">
+                                <input type="hidden" name="id" value="<%= s.id %>">
+                                <button type="submit" class="btn btn-outline btn-sm btn-danger">
+                                    <i class="fa-solid fa-trash"></i></button>
+                            </form>
+                        </div>
+                    </td>
+                    <% } %>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="callout callout-warn">
+    <i class="fa-solid fa-flask"></i>
+    <div><strong>Catatan kejujuran data:</strong> empat jenis ikan bawaan (Kakap putih, Kerapu cantang, Bandeng,
+        Nila) adalah <em>contoh umum budidaya Indonesia</em> sebagai titik awal — rentang idealnya merupakan
+        acuan literatur budidaya, bukan hasil pengukuran di lokasi Anda. Semua nilai dapat Anda sunting agar
+        sesuai kondisi keramba.</div>
+</div>
+
+<%- include('./partials/footer') %>

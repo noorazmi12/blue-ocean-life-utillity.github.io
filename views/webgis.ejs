@@ -1,0 +1,101 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-map-location-dot"></i> WebGIS</h1>
+        <p class="page-desc">Peta interaktif lokasi KJA dan seluruh perangkat pemantauan (OWC, sensor gelombang,
+            sensor kualitas air, kamera FishCount). Nilai pada popup diambil langsung dari pengukuran terbaru.</p>
+    </div>
+    <div class="page-actions">
+        <% if (isAdm) { %>
+        <button type="button" class="btn btn-primary btn-sm" id="btnAddLocation">
+            <i class="fa-solid fa-plus"></i> Tambah / Ubah Lokasi
+        </button>
+        <% } %>
+        <span class="source-note"><i class="fa-solid fa-map"></i> Imagery Esri &middot; &copy; OpenStreetMap</span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-layer-group"></i> Peta Perangkat</h3>
+            <p class="card-sub">Gunakan filter layer untuk menampilkan jenis perangkat tertentu</p>
+        </div>
+        <div class="card-tools">
+            <div class="input-group">
+                <input type="text" class="form-control" id="searchDevice" placeholder="Cari perangkat..." style="width:200px">
+                <button type="button" class="btn btn-outline btn-sm" id="btnSearch"><i class="fa-solid fa-magnifying-glass"></i></button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body" style="position:relative">
+        <div class="map-box" id="webgisMap"><span class="map-coord" id="mapCoord">—</span></div>
+        <div class="no-print" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;align-items:center">
+            <span class="form-label" style="margin:0">Filter Layer:</span>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="owc" checked> <i class="fa-solid fa-bolt" style="color:var(--accent-dark)"></i> Unit OWC
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="wave_sensor" checked> <i class="fa-solid fa-water" style="color:var(--blue)"></i> Sensor Gelombang
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="water_sensor" checked> <i class="fa-solid fa-droplet" style="color:var(--green)"></i> Sensor Kualitas Air
+            </label>
+            <label style="display:inline-flex;gap:7px;align-items:center;font-size:13px;font-weight:600">
+                <input type="checkbox" class="layer-chk" data-type="camera" checked> <i class="fa-solid fa-video" style="color:#8E44AD"></i> Kamera FishCount
+            </label>
+        </div>
+    </div>
+    <div class="map-legend">
+        <span class="legend-item"><span class="legend-swatch owc"></span> Unit OWC</span>
+        <span class="legend-item"><span class="legend-swatch wave"></span> Sensor Gelombang</span>
+        <span class="legend-item"><span class="legend-swatch water"></span> Sensor Kualitas Air</span>
+        <span class="legend-item"><span class="legend-swatch camera"></span> Kamera FishCount</span>
+        <span class="legend-item"><i class="fa-solid fa-circle-info"></i> Marker abu-abu = offline · Klik marker untuk nilai terbaru</span>
+    </div>
+</div>
+
+<!-- Daftar koordinat -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-location-crosshairs"></i> Informasi Koordinat Perangkat</h3>
+            <p class="card-sub">Sumber: tabel <code>device_locations</code></p>
+        </div>
+    </div>
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Perangkat</th><th>Jenis</th><th>Nama Lokasi</th><th>Latitude</th><th>Longitude</th><th>Terpasang</th><th>Aksi</th></tr></thead>
+            <tbody>
+            <% deviceList.forEach(function(d) { %>
+                <tr>
+                    <td class="table-strong"><%= e(d.device_name) %> <span class="source-note">(<%= e(d.device_code) %>)</span></td>
+                    <td><span class="badge badge-outline"><%= e(d.device_type.replace(/_/g, ' ')) %></span></td>
+                    <td><%= e(d.location_name || '—') %></td>
+                    <td class="num"><%= d.latitude !== null ? fmtNum(d.latitude, 7) : '—' %></td>
+                    <td class="num"><%= d.longitude !== null ? fmtNum(d.longitude, 7) : '—' %></td>
+                    <td><%= d.installed_at ? e(fmtDt(d.installed_at)) : '—' %></td>
+                    <td class="td-actions">
+                        <% if (d.latitude !== null) { %>
+                            <button type="button" class="btn btn-ghost btn-sm btn-fly" data-lat="<%= e(d.latitude) %>" data-lng="<%= e(d.longitude) %>" title="Tampilkan di peta"><i class="fa-solid fa-location-dot"></i></button>
+                        <% } %>
+                        <% if (isAdm) { %>
+                            <button type="button" class="btn btn-outline btn-sm btn-edit-loc"
+                                data-id="<%= d.id %>" data-code="<%= e(d.device_code) %>"
+                                data-lat="<%= e(d.latitude !== null ? d.latitude : '') %>" data-lng="<%= e(d.longitude !== null ? d.longitude : '') %>"
+                                data-loc="<%= e(d.location_name || '') %>" data-inst="<%= e(d.installed_at || '') %>"
+                                data-notes="<%= e(d.notes || '') %>">
+                                <i class="fa-solid fa-pen"></i> Ubah
+                            </button>
+                        <% } %>
+                    </td>
+                </tr>
+            <% }); %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>window.SKJA_BOOT=<%- safeJson(bootPayload) %>;</script>
+<%- include('./partials/footer') %>

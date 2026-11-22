@@ -1,0 +1,148 @@
+<%- include('./partials/header') %>
+
+<div class="page-header">
+    <div class="page-title">
+        <h1><i class="fa-solid fa-bell"></i> Peringatan</h1>
+        <p class="page-desc">Semua peringatan otomatis saat parameter melewati ambang, perangkat offline,
+            atau kejadian sistem lainnya. Atur ambang sesuai spesies di <a href="pengaturan.php">Pengaturan</a>.</p>
+    </div>
+    <div class="page-actions">
+        <span class="badge badge-red"><i class="fa-solid fa-circle-exclamation"></i>Kritis: <%= sum.crit %></span>
+        <span class="badge badge-yellow"><i class="fa-solid fa-triangle-exclamation"></i>Peringatan: <%= sum.warn %></span>
+        <span class="badge badge-gray"><i class="fa-solid fa-inbox"></i>Terbuka: <%= sum.open %></span>
+    </div>
+</div>
+
+<% if (detail) { %>
+<div class="card" id="detailCard">
+    <div class="card-header">
+        <div><h3 class="card-title"><i class="fa-solid fa-circle-info"></i> Detail Peringatan #<%= detail.id %></h3></div>
+        <a class="btn btn-ghost btn-sm" href="peringatan.php"><i class="fa-solid fa-xmark"></i> Tutup</a>
+    </div>
+    <div class="card-body">
+        <div class="grid-2">
+            <dl class="kv">
+                <dt>Judul</dt><dd><%= e(detail.title) %></dd>
+                <dt>Prioritas</dt><dd><%- severityBadge(detail.severity) %></dd>
+                <dt>Perangkat</dt><dd><%= e(detail.device_name || '—') %> (<%= e(detail.device_code || '—') %>)</dd>
+                <dt>Parameter</dt><dd><%= e(paramLabel(detail.parameter)) %></dd>
+                <dt>Waktu kejadian</dt><dd><%= e(fmtDt(detail.occurred_at)) %></dd>
+                <dt>Status</dt><dd><%- detail.status === 'open' ? '<span class="badge badge-red">Belum Ditangani</span>' : '<span class="badge badge-green">Selesai</span>' %></dd>
+                <% if (detail.status === 'resolved') { %>
+                <dt>Ditangani oleh</dt><dd><%= e(detail.resolver || '—') %></dd>
+                <dt>Waktu ditangani</dt><dd><%= e(fmtDt(detail.resolved_at)) %></dd>
+                <% } %>
+            </dl>
+            <div>
+                <p style="margin-bottom:8px"><strong>Pesan:</strong></p>
+                <div class="callout callout-<%= detail.severity === 'critical' ? 'danger' : (detail.severity === 'warning' ? 'warn' : 'info') %>">
+                    <i class="fa-solid <%= detail.severity === 'critical' ? 'fa-circle-exclamation' : (detail.severity === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info') %>"></i>
+                    <div><%= e(detail.message) %></div>
+                </div>
+                <dl class="kv">
+                    <dt>Nilai aktual</dt><dd><%= detail.actual_value !== null ? fmtNum(detail.actual_value, 3) : '—' %></dd>
+                    <dt>Nilai ambang</dt><dd><%= detail.threshold_value !== null ? fmtNum(detail.threshold_value, 3) : '—' %></dd>
+                </dl>
+                <% if (canMgr) { %>
+                <form method="post" style="margin-top:12px">
+                    <%- csrfFieldHtml %>
+                    <input type="hidden" name="id" value="<%= detail.id %>">
+                    <% if (detail.status === 'open') { %>
+                        <button class="btn btn-success btn-sm" name="action" value="resolve"><i class="fa-solid fa-check"></i> Tandai Ditangani</button>
+                    <% } else { %>
+                        <button class="btn btn-outline btn-sm" name="action" value="reopen"><i class="fa-solid fa-rotate-left"></i> Buka Kembali</button>
+                    <% } %>
+                </form>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</div>
+<% } %>
+
+<!-- Filter -->
+<div class="card no-print">
+    <div class="card-body">
+        <form method="get" action="peringatan.php" class="input-group">
+            <input type="date" class="form-control" name="from" value="<%= e(from) %>">
+            <span>—</span>
+            <input type="date" class="form-control" name="to" value="<%= e(to) %>">
+            <select class="form-select" name="severity">
+                <option value="">Semua Prioritas</option>
+                <option value="info" <%= severity === 'info' ? 'selected' : '' %>>Informasi</option>
+                <option value="warning" <%= severity === 'warning' ? 'selected' : '' %>>Peringatan</option>
+                <option value="critical" <%= severity === 'critical' ? 'selected' : '' %>>Kritis</option>
+            </select>
+            <select class="form-select" name="status">
+                <option value="">Semua Status</option>
+                <option value="open" <%= status === 'open' ? 'selected' : '' %>>Belum Ditangani</option>
+                <option value="resolved" <%= status === 'resolved' ? 'selected' : '' %>>Selesai</option>
+            </select>
+            <select class="form-select" name="param">
+                <option value="">Semua Parameter</option>
+                <% Object.entries(PARAM_LABELS).forEach(function([k, lbl]) { %>
+                    <option value="<%= e(k) %>" <%= param === k ? 'selected' : '' %>><%= e(lbl) %></option>
+                <% }); %>
+            </select>
+            <button class="btn btn-primary btn-sm" type="submit"><i class="fa-solid fa-filter"></i> Terapkan</button>
+            <a class="btn btn-ghost btn-sm" href="peringatan.php"><i class="fa-solid fa-rotate-left"></i> Reset</a>
+        </form>
+    </div>
+</div>
+
+<!-- Daftar peringatan -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h3 class="card-title"><i class="fa-solid fa-list"></i> Daftar Peringatan</h3>
+            <p class="card-sub">Total <%= fmtNum(total, 0) %> peringatan pada filter aktif</p>
+        </div>
+    </div>
+    <div class="alert-list">
+        <% if (!rows.length) { %>
+            <div class="empty-state"><i class="fa-regular fa-bell-slash"></i><p>Tidak ada peringatan sesuai filter.</p></div>
+        <% } %>
+        <% rows.forEach(function(al) { %>
+        <a class="alert-item <%= al.status === 'resolved' ? 'resolved' : '' %>" href="peringatan.php?id=<%= al.id %>">
+            <span class="a-icon <%= e(al.severity) %>">
+                <i class="fa-solid <%= al.severity === 'critical' ? 'fa-circle-exclamation' : (al.severity === 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info') %>"></i>
+            </span>
+            <span class="a-body">
+                <span class="a-title">
+                    <%= e(al.title) %>
+                    <%- al.status === 'open' ? '<span class="badge badge-gray">Belum ditangani</span>' : '<span class="badge badge-green"><i class="fa-solid fa-check"></i>Selesai</span>' %>
+                    <%- demoBadge(al.is_simulated) %>
+                </span>
+                <span class="a-msg"><%= e(al.message) %></span>
+                <span class="a-meta">
+                    <span><i class="fa-solid fa-microchip"></i> <%= e(al.device_name || '—') %></span>
+                    <span><i class="fa-solid fa-tag"></i> <%= e(paramLabel(al.parameter)) %></span>
+                    <span><i class="fa-regular fa-clock"></i> <%= e(fmtDt(al.occurred_at)) %></span>
+                    <span><i class="fa-solid fa-arrow-up-short-wide"></i> Aktual <%= al.actual_value !== null ? fmtNum(al.actual_value, 2) : '—' %> / Ambang <%= al.threshold_value !== null ? fmtNum(al.threshold_value, 2) : '—' %></span>
+                </span>
+            </span>
+            <% if (canMgr && al.status === 'open') { %>
+            <form method="post" class="td-actions" style="align-self:center">
+                <%- csrfFieldHtml %>
+                <input type="hidden" name="id" value="<%= al.id %>">
+                <button class="btn btn-outline btn-sm" name="action" value="resolve" onclick="event.stopPropagation()"
+                        title="Tandai peringatan ini sebagai ditangani"><i class="fa-solid fa-check"></i> Tangani</button>
+            </form>
+            <% } %>
+        </a>
+        <% }); %>
+    </div>
+    <% if (pages > 1) { %>
+    <div class="pagination">
+        <span class="page-info">Halaman <%= page %> dari <%= pages %></span>
+        <% if (page > 1) { %><a href="<%= e(qsMerge({ page: page - 1 })) %>"><i class="fa-solid fa-angle-left"></i></a><% } %>
+        <% for (let p = Math.max(1, page - 2); p <= Math.min(pages, page + 2); p++) { %>
+            <% if (p === page) { %><span class="page-cur"><%= p %></span>
+            <% } else { %><a href="<%= e(qsMerge({ page: p })) %>"><%= p %></a><% } %>
+        <% } %>
+        <% if (page < pages) { %><a href="<%= e(qsMerge({ page: page + 1 })) %>"><i class="fa-solid fa-angle-right"></i></a><% } %>
+    </div>
+    <% } %>
+</div>
+
+<%- include('./partials/footer') %>
